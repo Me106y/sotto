@@ -16,13 +16,13 @@
         </div>
 
         <nav class="nav">
-          <button class="nav-item active" type="button" data-mode="interview">
+          <button class="nav-item active" type="button" data-view="interview">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 6h16M4 12h11M4 18h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" />
             </svg>
             <span>模拟面试</span>
           </button>
-          <button class="nav-item" type="button" disabled>
+          <button class="nav-item" type="button" data-view="exam">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="m9 8-4 4 4 4M15 8l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
             </svg>
@@ -32,6 +32,15 @@
         </nav>
 
         <div class="section-label">知识库</div>
+        <nav class="nav">
+          <button class="nav-item" type="button" data-view="kb">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round" />
+            </svg>
+            <span>索引与来源</span>
+          </button>
+        </nav>
+
         <div class="kv">
           <div class="kv-row"><span>文件</span><b id="kvFiles">—</b></div>
           <div class="kv-row"><span>切片</span><b id="kvChunks">—</b></div>
@@ -39,7 +48,7 @@
         </div>
 
         <div class="sidebar-foot">
-          <button class="nav-item" type="button" disabled>
+          <button class="nav-item" type="button" data-view="settings">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none" />
               <path d="M12 3v2m0 14v2M3 12h2m14 0h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -54,35 +63,144 @@
         <div class="tabbar">
           <div class="tab active">
             <span class="dot-mark"></span>
-            模拟面试
+            <span id="tabLabel">模拟面试</span>
           </div>
         </div>
 
-        <div class="feed" id="feed">
-          <section class="empty" id="empty">
-            <h2>今天练哪一面？</h2>
-            <p>你当面试官，我来答。答案只从你自己的材料里长出来。</p>
-            <div class="chips" id="chips"></div>
-            <p class="hint">M0 · 模型未接入，返回的是命中材料本身。</p>
-          </section>
-        </div>
-
-        <div class="composer">
-          <div class="input-wrap">
-            <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"></textarea>
-            <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" fill="none" stroke="currentColor" stroke-width="1.7" />
-                <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-              </svg>
-            </button>
-            <button class="send" id="send" type="button" title="发送">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </button>
+        <!-- 模拟面试 -->
+        <section class="view active" id="view-interview">
+          <div class="feed" id="feed">
+            <section class="empty" id="empty">
+              <h2>今天练哪一面？</h2>
+              <p>你当面试官，我来答。答案只从你自己的材料里长出来。</p>
+              <div class="chips" id="chips"></div>
+              <p class="hint">M0 · 模型未接入，返回的是命中材料本身。</p>
+            </section>
           </div>
-        </div>
+          <div class="composer">
+            <div class="input-wrap">
+              <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"></textarea>
+              <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" fill="none" stroke="currentColor" stroke-width="1.7" />
+                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button class="send" id="send" type="button" title="发送">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 模拟笔试 -->
+        <section class="view" id="view-exam">
+          <div class="exam">
+            <div class="exam-left">
+              <div class="pane-title">题面</div>
+              <textarea id="problem" class="plain-area" rows="6" placeholder="把题目贴在这里，不会被使用，只是占位。"></textarea>
+
+              <div class="pane-title">自定义输入 stdin</div>
+              <textarea id="stdin" class="plain-area mono" rows="3" placeholder="留空则不喂输入"></textarea>
+
+              <div class="pane-title">期望输出</div>
+              <textarea id="expected" class="plain-area mono" rows="3" placeholder="留空则不比对，只跑"></textarea>
+
+              <div class="pane-title">语言</div>
+              <div class="lang-row" id="langRow"></div>
+            </div>
+
+            <div class="exam-right">
+              <div class="editor-bar">
+                <span class="editor-info" id="editorInfo">Python 3</span>
+                <button class="primary-btn" id="runBtn" type="button">运行 ⌘R</button>
+              </div>
+
+              <div class="editor" id="editorBox">
+                <div class="gutter" id="gutter"></div>
+                <textarea id="code" class="code-area" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+              </div>
+
+              <div class="output">
+                <div class="out-head">
+                  <button class="out-tab active" type="button" data-out="stdout">输出</button>
+                  <button class="out-tab" type="button" data-out="stderr">错误</button>
+                  <span class="out-meta" id="runMeta"></span>
+                </div>
+                <pre id="outBody" class="out-body"></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 知识库 -->
+        <section class="view" id="view-kb">
+          <div class="page">
+            <div class="page-head">
+              <div>
+                <h2>索引与来源</h2>
+                <p class="page-sub" id="kbSub">—</p>
+              </div>
+              <button class="ghost-btn" id="reindexBtn" type="button">重建索引</button>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr><th>文件</th><th class="num">切片</th><th class="num">字数</th><th class="num">大小</th></tr>
+                </thead>
+                <tbody id="fileRows"></tbody>
+              </table>
+            </div>
+            <h3 class="sub-title">被跳过 <span id="skipCount"></span></h3>
+            <div id="skipList" class="skip-list"></div>
+          </div>
+        </section>
+
+        <!-- 设置 -->
+        <section class="view" id="view-settings">
+          <div class="page narrow">
+            <div class="page-head">
+              <div>
+                <h2>设置</h2>
+                <p class="page-sub">改完点保存，会立刻重建索引。</p>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>笔记根目录</span>
+              <input id="setRoot" type="text" spellcheck="false" />
+            </label>
+            <label class="field">
+              <span>参与索引的子目录<em>逗号分隔，留空表示整个根目录</em></span>
+              <input id="setIncludes" type="text" spellcheck="false" />
+            </label>
+            <label class="field">
+              <span>始终跳过<em>逗号分隔，按目录名匹配</em></span>
+              <input id="setExcludes" type="text" spellcheck="false" />
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span>单文件上限（KB）</span>
+                <input id="setMaxKb" type="number" min="1" />
+              </label>
+              <label class="field">
+                <span>每次检索条数</span>
+                <input id="setTopK" type="number" min="1" max="10" />
+              </label>
+            </div>
+
+            <div class="actions">
+              <button class="primary-btn" id="saveBtn" type="button">保存并重建</button>
+              <button class="ghost-btn" id="resetBtn" type="button">恢复默认</button>
+              <span class="save-msg" id="saveMsg"></span>
+            </div>
+
+            <p class="hint">配置文件：<code>~/Library/Application Support/Sotto/config.json</code></p>
+            <p class="hint">模型、语音、快捷键的配置等接入真实供应商后加到这里 —— PRD F6。</p>
+          </div>
+        </section>
 
         <footer class="statusbar">
           <span class="sb-left">

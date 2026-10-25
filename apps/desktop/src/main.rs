@@ -1,16 +1,60 @@
 //! Sotto 桌面壳。
 //!
-//! 这一层只做三件事：开窗、读本地语料、把检索结果交给前端。
-//! 所有业务逻辑在 `sotto-core` / `sotto-index` 里，这里不写判断。
+//! 这一层只做：开窗、管状态、把核心能力暴露给前端。
+//! 业务逻辑在 `sotto-core` / `sotto-index` 和本目录的三个模块里。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+mod config;
+mod exec;
+mod kb;
+
+use std::sync::{Mutex, RwLock};
 use std::time::Instant;
 
 use serde::Serialize;
 use tauri::Manager;
-use sotto_index::{build_corpus, HybridRetriever, ScanConfig};
+
+use config::Config;
+use kb::{Kb, KbReport};
+
+// ---------------------------------------------------------------- 状态
+
+struct AppState {
+    cfg: Mutex<Config>,
+    kb: RwLock<Option<Kb>>,
+    error: Mutex<Option<String>>,
+}
+
+impl AppState {
+    fn rebuild(&self) -> Result<KbReport, String> {
+        let cfg = self.cfg.lock().unwrap().clone();
+        match Kb::build(&cfg) {
+            Ok(kb) => {
+                let report = kb.report.clone();
+                *self.kb.write().unwrap() = Some(kb);
+                *self.error.lock().unwrap() = None;
+                Ok(report)
+            }
+            Err(e) => {
+                *self.error.lock().unwrap() = Some(e.clone());
+                Err(e)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- DTO
+
+#[derive(Serialize)]
+struct StatusDto {
+    ready: bool,
+    chunks: usize,
+    files: usize,
+    scope: Vec<String>,
+    built_ms: f64,
+    error: Option<String>,
+}
 
 #[derive(Serialize)]
 struct HitDto {
@@ -20,7 +64,6 @@ struct HitDto {
     score: f64,
     /// 材料里的第一句——它才是能直接念出口的东西
     lead: String,
-    /// 其余部分，用作备查
     body: String,
 }
 
@@ -30,47 +73,134 @@ struct SearchDto {
     hits: Vec<HitDto>,
     took_ms: f64,
     chunks: usize,
-    files: usize,
-    scope: Vec<String>,
+    top_k: usize,
+    degraded: bool,
 }
 
-#[derive(Serialize)]
-struct StatusDto {
-    ready: bool,
-    chunks: usize,
-    files: usize,
-    scope: Vec<String>,
-    error: Option<String>,
+fn status_of(state: &AppState) -> StatusDto {
+    let cfg = state.cfg.lock().unwrap().clone();
+    let guard = state.kb.read().unwrap();
+    match guard.as_ref() {
+        Some(kb) => {
+            let mut scope = vec![kb.report.root.clone()];
+            scope.extend(cfg.includes.clone());
+            StatusDto {
+                ready: true,
+                chunks: kb.report.chunks,
+                files: kb.report.files.len(),
+                scope,
+                built_ms: kb.report.built_ms,
+                error: state.error.lock().unwrap().clone(),
+            }
+        }
+        None => StatusDto {
+            ready: false,
+            chunks: 0,
+            files: 0,
+            scope: vec![cfg.root],
+            built_ms: 0.0,
+            error: state.error.lock().unwrap().clone(),
+        },
+    }
 }
 
-struct App {
-    retriever: Option<HybridRetriever>,
-    files: usize,
-    scope: Vec<String>,
-    error: Option<String>,
+// ---------------------------------------------------------------- 命令
+
+#[tauri::command]
+fn status(state: tauri::State<'_, AppState>) -> StatusDto {
+    status_of(&state)
 }
 
-fn home() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/"))
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> Config {
+    state.cfg.lock().unwrap().clone()
 }
 
-/// 作用域默认值。真实版本会从设置页读，M1 先用环境变量覆盖。
-fn scope_config() -> (PathBuf, Vec<String>) {
-    let root = std::env::var("SOTTO_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home().join("Desktop/Note"));
-    let includes = std::env::var("SOTTO_INCLUDE")
-        .map(|s| s.split(',').map(|x| x.trim().to_string()).collect())
-        .unwrap_or_else(|_| {
-            vec![
-                "项目经历".to_string(),
-                "面试准备".to_string(),
-                "学习".to_string(),
-            ]
-        });
-    (root, includes)
+#[tauri::command]
+fn save_settings(state: tauri::State<'_, AppState>, cfg: Config) -> Result<StatusDto, String> {
+    if !std::path::Path::new(&cfg.root).is_dir() {
+        return Err(format!("目录不存在：{}", cfg.root));
+    }
+    cfg.save()?;
+    *state.cfg.lock().unwrap() = cfg;
+    state.rebuild()?;
+    Ok(status_of(&state))
+}
+
+#[tauri::command]
+fn kb_report(state: tauri::State<'_, AppState>) -> Result<KbReport, String> {
+    let guard = state.kb.read().unwrap();
+    guard
+        .as_ref()
+        .map(|k| k.report.clone())
+        .ok_or_else(|| "索引还没建好".to_string())
+}
+
+#[tauri::command]
+fn reindex(state: tauri::State<'_, AppState>) -> Result<KbReport, String> {
+    state.rebuild()
+}
+
+#[tauri::command]
+fn search(state: tauri::State<'_, AppState>, query: String, k: usize) -> Result<SearchDto, String> {
+    let guard = state.kb.read().unwrap();
+    let kb = guard.as_ref().ok_or_else(|| {
+        state
+            .error
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "索引未就绪".into())
+    })?;
+
+    let top_k = if k == 0 {
+        state.cfg.lock().unwrap().top_k
+    } else {
+        k
+    };
+
+    let t = Instant::now();
+    let hits = kb.retriever.search(&query, top_k.max(1));
+    let took_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let degraded = hits.is_empty() || hits.first().map(|h| h.score).unwrap_or(0.0) < 0.05;
+
+    let hits = hits
+        .into_iter()
+        .enumerate()
+        .map(|(i, h)| {
+            let lead = pick_lead(&h.chunk.text);
+            let body = plain(&h.chunk.excerpt(320));
+            HitDto {
+                rank: i + 1,
+                source: h.chunk.source.clone(),
+                heading: h.chunk.heading.clone(),
+                score: h.score as f64,
+                lead,
+                body,
+            }
+        })
+        .collect();
+
+    Ok(SearchDto {
+        query,
+        hits,
+        took_ms,
+        chunks: kb.report.chunks,
+        top_k,
+        degraded,
+    })
+}
+
+#[tauri::command]
+fn runtimes() -> Vec<exec::RuntimeInfo> {
+    exec::runtimes()
+}
+
+#[tauri::command]
+async fn run_code(lang: String, code: String, stdin: String) -> Result<exec::RunResult, String> {
+    tauri::async_runtime::spawn_blocking(move || exec::run(&lang, &code, &stdin))
+        .await
+        .map_err(|e| format!("执行线程出错：{e}"))?
 }
 
 /// 自检专用：把前端结果落到文件，绕开截图/窗口标题权限。
@@ -79,27 +209,21 @@ fn selftest_report(payload: String) -> Result<(), String> {
     std::fs::write("/tmp/sotto-selftest.txt", payload).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn status(state: tauri::State<'_, App>) -> StatusDto {
-    StatusDto {
-        ready: state.retriever.is_some(),
-        chunks: state.retriever.as_ref().map(|r| r.len()).unwrap_or(0),
-        files: state.files,
-        scope: state.scope.clone(),
-        error: state.error.clone(),
-    }
-}
+// ---------------------------------------------------------------- 文本处理
 
-
-/// 笔记里常写成「**面试官问题：** … **我的回答：** …」。
+/// 笔记常写成「**面试官问题：** … **我的回答：** …」，
 /// 悬浮条上要念的是「我的回答」的第一句，不是问题本身。
 fn pick_lead(text: &str) -> String {
     let mut body = text;
     if let Some(idx) = text.find("我的回答") {
         let rest = &text[idx..];
         if let Some(colon) = rest.find(|c| c == '：' || c == ':') {
-            let start = idx + colon + '：'.len_utf8().min(rest[colon..].chars().next().map(|c| c.len_utf8()).unwrap_or(1));
-            body = &text[start.min(text.len())..];
+            let offset = rest[colon..]
+                .chars()
+                .next()
+                .map(|c| c.len_utf8())
+                .unwrap_or(1);
+            body = &text[(idx + colon + offset).min(text.len())..];
         }
     }
     plain(&sotto_core::prompt::first_sentence(body))
@@ -125,102 +249,75 @@ fn plain(text: &str) -> String {
         .to_string()
 }
 
-#[tauri::command]
-fn search(state: tauri::State<'_, App>, query: String, k: usize) -> Result<SearchDto, String> {
-    let retriever = state
-        .retriever
-        .as_ref()
-        .ok_or_else(|| state.error.clone().unwrap_or_else(|| "索引未就绪".into()))?;
-
-    let t = Instant::now();
-    let hits = retriever.search(&query, k.max(1));
-    let took_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let hits = hits
-        .into_iter()
-        .enumerate()
-        .map(|(i, h)| {
-            let lead = pick_lead(&h.chunk.text);
-            let body = plain(&h.chunk.excerpt(320));
-            HitDto {
-                rank: i + 1,
-                source: h.chunk.source.clone(),
-                heading: h.chunk.heading.clone(),
-                score: h.score as f64,
-                lead,
-                body,
-            }
-        })
-        .collect();
-
-    Ok(SearchDto {
-        query,
-        hits,
-        took_ms,
-        chunks: retriever.len(),
-        files: state.files,
-        scope: state.scope.clone(),
-    })
-}
+// ---------------------------------------------------------------- 启动
 
 const SELFTEST_JS: &str = r#"
 (async () => {
   const text = (document.body.innerText || '').replace(/\s+/g, ' ').trim();
-  let out = 'DOM[' + text.slice(0, 46) + ']';
+  let out = 'DOM[' + text.slice(0, 40) + ']';
   try {
     const st = await window.__TAURI__.core.invoke('status');
     out += ' STATUS[' + st.ready + '/' + st.chunks + '/' + st.files + ']';
     const r = await window.__TAURI__.core.invoke('search', { query: '置信度分流', k: 2 });
     out += ' SEARCH[' + r.hits.length + '/' + r.took_ms.toFixed(1) + 'ms]';
     if (r.hits[0]) out += ' TOP[' + r.hits[0].source.split('/').pop() + ']';
-    out += ' LEAD[' + (r.hits[0] ? r.hits[0].lead.slice(0, 18) : '-') + ']';
-  } catch (e) { out += ' ERR[' + String(e).slice(0, 80) + ']'; }
+    const rt = await window.__TAURI__.core.invoke('runtimes');
+    out += ' RT[' + rt.filter(x => x.available).length + '/' + rt.length + ']';
+    const kb = await window.__TAURI__.core.invoke('kb_report');
+    out += ' KB[' + kb.files.length + '/' + kb.skipped.length + ']';
+    const run = await window.__TAURI__.core.invoke('run_code', {
+      lang: 'python', code: 'a,b=map(int,input().split())\nprint(a+b)', stdin: '1 2'
+    });
+    out += ' RUN[' + run.status + ':' + run.stdout.trim() + ':' + run.duration_ms.toFixed(0) + 'ms]';
+    const bad = await window.__TAURI__.core.invoke('run_code', {
+      lang: 'python', code: 'x=1\nprint(y)', stdin: ''
+    });
+    out += ' ERR[' + bad.status + '/' + bad.error_line + ']';
+  } catch (e) { out += ' EXC[' + String(e).slice(0, 90) + ']'; }
   try { await window.__TAURI__.core.invoke('selftest_report', { payload: out }); }
-  catch (e) { document.title = 'REPORT_FAIL ' + String(e); }
+  catch (e) { document.title = 'REPORT_FAIL'; }
 })()
 "#;
 
 fn main() {
-    let (root, includes) = scope_config();
-    let scope = {
-        let mut s = vec![root.to_string_lossy().to_string()];
-        s.extend(includes.clone());
-        s
+    let cfg = Config::load().with_env_overrides();
+    // 第一次启动就把默认配置写出来，让设置页有东西可看、可改。
+    if !Config::path().exists() {
+        let _ = cfg.save();
+    }
+    let state = AppState {
+        kb: RwLock::new(None),
+        error: Mutex::new(None),
+        cfg: Mutex::new(cfg),
     };
-
-    let mut cfg = ScanConfig::new(&root);
-    for i in &includes {
-        cfg = cfg.include(i.clone());
+    if let Err(e) = state.rebuild() {
+        *state.error.lock().unwrap() = Some(e);
     }
 
-    let (retriever, files, error) = match build_corpus(&cfg) {
-        Ok((chunks, scan)) => (Some(HybridRetriever::new(chunks)), scan.files.len(), None),
-        Err(e) => (None, 0, Some(format!("读不到语料：{e}"))),
-    };
-
-    let app = App {
-        retriever,
-        files,
-        scope,
-        error,
-    };
-
     tauri::Builder::default()
-        .manage(app)
+        .manage(state)
         .setup(|app| {
-            // 自检：把前端渲染结果 + invoke 通路写进窗口标题，
-            // 这样在没有截图权限的环境里也能验证 UI 真的活了。
             if std::env::var("SOTTO_SELFTEST").is_ok() {
                 if let Some(win) = app.get_webview_window("main") {
                     std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(1200));
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
                         let _ = win.eval(SELFTEST_JS);
                     });
                 }
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![search, status, selftest_report])
+        .invoke_handler(tauri::generate_handler![
+            status,
+            search,
+            get_settings,
+            save_settings,
+            kb_report,
+            reindex,
+            runtimes,
+            run_code,
+            selftest_report
+        ])
         .run(tauri::generate_context!())
         .expect("Sotto 启动失败");
 }
