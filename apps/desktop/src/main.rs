@@ -7,13 +7,14 @@
 
 mod config;
 mod exec;
+mod llm;
 mod kb;
 
 use std::sync::{Mutex, RwLock};
 use std::time::Instant;
 
 use serde::Serialize;
-use tauri::{LogicalSize, Manager};
+use tauri::{Emitter, LogicalSize, Manager};
 
 use config::Config;
 use kb::{Kb, KbReport};
@@ -198,6 +199,134 @@ async fn check(lang: String, code: String) -> Result<Vec<exec::Diagnostic>, Stri
         .map_err(|e| format!("检查线程出错：{e}"))?
 }
 
+#[derive(Serialize)]
+struct SourceDto {
+    source: String,
+    heading: String,
+    score: f64,
+}
+
+#[derive(Serialize)]
+struct AnswerDto {
+    answer: String,
+    lead: String,
+    sources: Vec<SourceDto>,
+    retrieval_ms: f64,
+    ttft_ms: f64,
+    total_ms: f64,
+    chars: usize,
+    degraded: bool,
+}
+
+#[derive(Serialize)]
+struct LlmStatus {
+    configured: bool,
+    model: String,
+    base_url: String,
+}
+
+#[tauri::command]
+fn llm_status(state: tauri::State<'_, AppState>) -> LlmStatus {
+    let cfg = state.cfg.lock().unwrap().clone();
+    LlmStatus {
+        configured: !cfg.api_key.trim().is_empty(),
+        model: cfg.model,
+        base_url: cfg.base_url,
+    }
+}
+
+/// 只发一句最短的话，用来量首字延迟、验证 key 好不好使。
+#[tauri::command]
+async fn llm_probe(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().unwrap().clone();
+    let client = llm::ArkClient::from_config(&cfg);
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        client.stream("你只回复两个字：收到", "在吗", |_| {})
+    })
+    .await
+    .map_err(|e| format!("线程出错：{e}"))??;
+
+    Ok(serde_json::json!({
+        "ttft_ms": outcome.ttft_ms,
+        "total_ms": outcome.total_ms,
+        "text": outcome.text,
+        "deltas": outcome.deltas,
+    }))
+}
+
+/// 检索 → 拼 prompt → 流式生成。首字延迟和总耗时都在这里量。
+#[tauri::command]
+async fn answer(
+    app: tauri::AppHandle,
+    req_id: u64,
+    state: tauri::State<'_, AppState>,
+    question: String,
+    k: usize,
+) -> Result<AnswerDto, String> {
+    let cfg = state.cfg.lock().unwrap().clone();
+    if cfg.api_key.trim().is_empty() {
+        return Err("还没配置 API key，去设置里填。".into());
+    }
+
+    let (hits, retrieval_ms, top_k) = {
+        let guard = state.kb.read().unwrap();
+        let kb = guard.as_ref().ok_or("索引未就绪")?;
+        let top = if k == 0 { cfg.top_k } else { k };
+        let t = Instant::now();
+        let hits = kb.retriever.search(&question, top.max(1));
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let infos: Vec<sotto_core::HitInfo> = hits
+            .iter()
+            .map(|h| sotto_core::HitInfo {
+                chunk_id: 0,
+                source: h.chunk.source.clone(),
+                heading: h.chunk.heading.clone(),
+                score: h.score,
+                excerpt: h.chunk.excerpt(600),
+            })
+            .collect();
+        (infos, ms, top)
+    };
+
+    let degraded = hits.is_empty() || hits.first().map(|h| h.score).unwrap_or(0.0) < 0.05;
+    let payload = sotto_core::prompt::build(&question, &hits);
+    let client = llm::ArkClient::from_config(&cfg);
+
+    let emit_app = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        client.stream(&payload.system, &payload.user, |delta| {
+            let _ = emit_app.emit(
+                "answer-delta",
+                serde_json::json!({ "id": req_id, "delta": delta }),
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("线程出错：{e}"))??;
+
+    let sources = hits
+        .iter()
+        .take(top_k)
+        .map(|h| SourceDto {
+            source: h.source.clone(),
+            heading: h.heading.clone(),
+            score: h.score as f64,
+        })
+        .collect();
+
+    Ok(AnswerDto {
+        lead: sotto_core::prompt::first_sentence(&outcome.text),
+        chars: outcome.text.chars().count(),
+        answer: outcome.text,
+        sources,
+        retrieval_ms,
+        ttft_ms: outcome.ttft_ms,
+        total_ms: outcome.total_ms,
+        degraded,
+    })
+}
+
 #[tauri::command]
 fn runtimes() -> Vec<exec::RuntimeInfo> {
     exec::runtimes()
@@ -291,6 +420,46 @@ const LINT2_JS: &str = r#"
   await window.__TAURI__.core.invoke('selftest_report', {
     payload: 'js=' + js + ' | cpp=' + cpp, tag: 'lint2'
   });
+})()
+"#;
+
+const LLM_JS: &str = r#"
+(async () => {
+  try {
+    const st = await window.__TAURI__.core.invoke('llm_status');
+    const t = await window.__TAURI__.core.invoke('llm_probe');
+    const r = await window.__TAURI__.core.invoke('answer', {
+      reqId: 1, question: '你们那个系统，置信度不够的时候怎么处理？', k: 3
+    });
+    const payload = 'CFG[' + st.configured + '/' + st.model + ']' +
+      ' PROBE[ttft=' + t.ttft_ms.toFixed(0) + ' total=' + t.total_ms.toFixed(0) + ' text=' + t.text.slice(0, 8) + ']' +
+      ' ANSWER[ttft=' + r.ttft_ms.toFixed(0) + ' total=' + r.total_ms.toFixed(0) +
+      ' chars=' + r.chars + ' src=' + r.sources.length + ' lead=' + r.lead.slice(0, 26) + ']';
+    await window.__TAURI__.core.invoke('selftest_report', { payload, tag: 'llm' });
+  } catch (e) {
+    await window.__TAURI__.core.invoke('selftest_report', { payload: 'ERR ' + e, tag: 'llm' });
+  }
+})()
+"#;
+
+const ASK_JS: &str = r#"
+(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  try {
+    const inp = document.getElementById('input');
+    inp.value = '你们那个系统，置信度不够的时候怎么处理？';
+    document.getElementById('send').click();
+    await wait(6000);
+    const card = document.querySelector('.answer');
+    const meta = card ? card.querySelector('.answer-meta').textContent : '(无卡片)';
+    const lead = card ? card.querySelector('.answer-lead').textContent : '';
+    const chips = document.querySelectorAll('.src-chip').length;
+    const body = card ? card.querySelector('.answer-body').textContent : '';
+    const payload = 'META[' + meta + '] CHIPS[' + chips + '] LEAD[' + lead + '] BODY[' + body + ']';
+    await window.__TAURI__.core.invoke('selftest_report', { payload, tag: 'ask' });
+  } catch (e) {
+    await window.__TAURI__.core.invoke('selftest_report', { payload: 'ERR ' + e, tag: 'ask' });
+  }
 })()
 "#;
 
@@ -435,6 +604,10 @@ fn main() {
                             let _ = win.eval(&format!("window.__TAG='full';{MEASURE_JS}"));
                             std::thread::sleep(std::time::Duration::from_millis(900));
                             let _ = win.set_fullscreen(false);
+                        } else if mode == "ask" {
+                            let _ = win.eval(ASK_JS);
+                        } else if mode == "llm" {
+                            let _ = win.eval(LLM_JS);
                         } else if mode == "lint" {
                             let _ = win.eval(LINT_JS);
                         } else if mode == "lint2" {
@@ -457,6 +630,9 @@ fn main() {
             runtimes,
             run_code,
             check,
+            llm_status,
+            llm_probe,
+            answer,
             selftest_report
         ])
         .run(tauri::generate_context!())

@@ -53,6 +53,7 @@ const st = {
   outText: "",
   diagnostics: [],
   busy: false,
+  answerSeq: 0,
 };
 
 const EXAMPLES = [
@@ -184,23 +185,115 @@ async function send() {
 
   if (empty && empty.parentNode) empty.remove();
   appendAsk(q);
-  const thinking = appendThinking();
   scrollToEnd();
 
+  const reqId = ++st.answerSeq;
+  const card = createAnswerCard();
+  feed.appendChild(card);
+  scrollToEnd();
+
+  // 边收边渲染：模型每个 delta 都推到这里
+  let unlisten = null;
+  let streamed = "";
   try {
-    const res = await invoke("search", { query: q, k: st.settings?.top_k ?? 3 });
-    thinking.remove();
-    appendResults(res);
-    meta.textContent = `${res.hits.length} 条命中 · ${res.took_ms.toFixed(1)} ms`;
+    if (window.__TAURI__?.event?.listen) {
+      unlisten = await window.__TAURI__.event.listen("answer-delta", (e) => {
+        if (!e.payload || e.payload.id !== reqId) return;
+        streamed += e.payload.delta;
+        renderStreaming(card, streamed);
+        scrollToEnd();
+      });
+    }
+
+    const res = await invoke("answer", { reqId, question: q, k: st.settings?.top_k ?? 3 });
+    renderAnswer(card, res);
+    meta.textContent = `首字 ${res.ttft_ms.toFixed(0)} ms · 共 ${res.total_ms.toFixed(0)} ms · ${res.chars} 字`;
   } catch (e) {
-    thinking.remove();
-    appendError(String(e));
+    // 模型没配好或者挂了：退回「只给材料」，至少别让这一问白问
+    card.remove();
+    appendNote(streamed ? "生成中断，以下是命中的材料" : String(e));
+    try {
+      const res = await invoke("search", { query: q, k: st.settings?.top_k ?? 3 });
+      appendResults(res);
+      meta.textContent = `${res.hits.length} 条材料 · 未生成回答`;
+    } catch (_) {
+      /* 检索也挂了就算了 */
+    }
   } finally {
+    if (unlisten) unlisten();
     st.busy = false;
     sendBtn.disabled = false;
     input.focus();
     scrollToEnd();
   }
+}
+
+function createAnswerCard() {
+  const card = document.createElement("article");
+  card.className = "answer";
+
+  const head = document.createElement("div");
+  head.className = "answer-head";
+  const badge = document.createElement("span");
+  badge.className = "answer-badge";
+  badge.textContent = "Sotto";
+  const metaEl = document.createElement("span");
+  metaEl.className = "answer-meta";
+  metaEl.textContent = "正在想…";
+  head.append(badge, metaEl);
+
+  const lead = document.createElement("p");
+  lead.className = "answer-lead";
+  lead.hidden = true;
+
+  const body = document.createElement("p");
+  body.className = "answer-body streaming";
+
+  const sources = document.createElement("div");
+  sources.className = "answer-sources";
+  sources.hidden = true;
+
+  card.append(head, lead, body, sources);
+  card._parts = { metaEl, lead, body, sources };
+  return card;
+}
+
+function renderStreaming(card, text) {
+  const { metaEl, body } = card._parts;
+  body.textContent = text;
+  metaEl.textContent = "生成中…";
+}
+
+function renderAnswer(card, res) {
+  const { metaEl, lead, body, sources } = card._parts;
+  lead.textContent = res.lead || res.answer;
+  lead.hidden = false;
+  body.classList.remove("streaming");
+  // 首句如果已经在 lead 里，body 就只放剩下的
+  const rest = res.answer.startsWith(res.lead)
+    ? res.answer.slice(res.lead.length).trim()
+    : res.answer;
+  body.textContent = rest;
+  body.hidden = !rest;
+
+  metaEl.textContent = `首字 ${res.ttft_ms.toFixed(0)} ms · 共 ${res.total_ms.toFixed(0)} ms · ${res.chars} 字`;
+
+  sources.innerHTML = "";
+  (res.sources || []).forEach((s) => {
+    const chip = document.createElement("span");
+    chip.className = "src-chip";
+    chip.textContent = s.heading ? `${s.source} · ${s.heading}` : s.source;
+    chip.title = chip.textContent;
+    sources.appendChild(chip);
+  });
+  sources.hidden = !(res.sources || []).length;
+}
+
+function appendNote(text) {
+  const note = document.createElement("p");
+  note.className = "note";
+  note.textContent = text;
+  feed.appendChild(note);
 }
 
 function appendAsk(text) {
@@ -611,6 +704,10 @@ function renderKb(kb) {
 // ---------------------------------------------------------------- 设置
 
 function fillSettings(cfg) {
+  $("setKey").value = cfg.api_key ?? "";
+  $("setModel").value = cfg.model ?? "";
+  $("setBase").value = cfg.base_url ?? "";
+  $("setTemp").value = cfg.temperature ?? 0.4;
   $("setRoot").value = cfg.root ?? "";
   $("setIncludes").value = (cfg.includes ?? []).join(", ");
   $("setExcludes").value = (cfg.excludes ?? []).join(", ");
@@ -625,6 +722,10 @@ function readSettings() {
       .map((s) => s.trim())
       .filter(Boolean);
   return {
+    api_key: $("setKey").value.trim(),
+    model: $("setModel").value.trim(),
+    base_url: $("setBase").value.trim(),
+    temperature: Number($("setTemp").value) || 0.4,
     root: $("setRoot").value.trim(),
     includes: split($("setIncludes").value),
     excludes: split($("setExcludes").value),
@@ -646,6 +747,29 @@ $("saveBtn").addEventListener("click", async () => {
     msg.textContent = "已保存，索引已重建";
     msg.className = "save-msg ok";
     loadKb();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "save-msg bad";
+  }
+});
+
+$("probeBtn").addEventListener("click", async () => {
+  if (!invoke) return;
+  const msg = $("probeMsg");
+  msg.textContent = "连接中…";
+  msg.className = "save-msg";
+  // 先把当前表单存下去，否则探测的还是旧 key
+  try {
+    await invoke("save_settings", { cfg: readSettings() });
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "save-msg bad";
+    return;
+  }
+  try {
+    const r = await invoke("llm_probe");
+    msg.textContent = `通了 · 首字 ${r.ttft_ms.toFixed(0)} ms · 返回「${(r.text || "").slice(0, 12)}」`;
+    msg.className = "save-msg ok";
   } catch (e) {
     msg.textContent = String(e);
     msg.className = "save-msg bad";

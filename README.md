@@ -106,6 +106,31 @@ SOTTO_ROOT=~/Notes SOTTO_INCLUDE=项目经历,面试准备 cargo run -p sotto-de
 
 ---
 
+## 接真模型（PRD F1.4）
+
+![真实回答](docs/answer.png)
+
+模拟面试现在是真的在生成：检索你的笔记 → 拼 prompt → 流式调用豆包 → 边收边渲染。
+
+- **接口**：火山方舟 `/api/v3/responses`（不是老的 chat/completions）
+- **`thinking: disabled`**：关掉推理链。面试场景没时间等它想，开了之后首字会慢一倍
+- **`instructions`** 当 system prompt，**`stream: true`** 拿 SSE
+- 每个 `response.output_text.delta` 通过 Tauri 事件推给前端，卡片边收边显示
+- 答完把首句拎出来当「可以直接念」的那一行，下面接剩下的，底部列来源
+
+**实测（同一台机器，同一个问题）**：
+
+| 问句 | 首字 | 总耗时 | 字数 |
+|---|---|---|---|
+| 置信度不够怎么处理（第 1 次） | 586 ms | 1345 ms | 86 |
+| 同一句（第 2 次） | 1143 ms | 1414 ms | 86 |
+| 探测句（只回两个字） | 419 ms | 467 ms | 2 |
+
+首字波动挺大（586~1143ms），这是网络和模型调度，不是我们能控的。
+**好消息是它落在 1.5s 预算里；坏消息是加上 TTS 首包（200~400ms）之后，最坏情况会顶到 1.5s 边缘。**
+
+Key 存在 `~/Library/Application Support/Sotto/config.json`（明文，本机），**不进仓库**。
+
 ## 模拟笔试（PRD F5）
 
 上下布局：顶部语言切换 + 运行按钮，中间代码区，底部测试样例与输出。

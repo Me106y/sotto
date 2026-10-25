@@ -20,6 +20,12 @@ pub struct Config {
     pub top_k: usize,
     /// 选中语言（模拟笔试）
     pub lang: String,
+
+    // ---- 模型（豆包 / 火山方舟）----
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+    pub temperature: f64,
 }
 
 impl Default for Config {
@@ -46,6 +52,10 @@ impl Default for Config {
             max_file_kb: 512,
             top_k: 3,
             lang: "python".into(),
+            api_key: String::new(),
+            base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+            model: "doubao-seed-2-0-mini-260428".into(),
+            temperature: 0.4,
         }
     }
 }
