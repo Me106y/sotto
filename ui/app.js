@@ -357,6 +357,9 @@ code.addEventListener("input", () => {
   renderGutter();
   markError(null);
 });
+// 粘贴/撤销/输入法这类路径不一定都走 input，兜一层
+code.addEventListener("keyup", renderGutter);
+code.addEventListener("change", renderGutter);
 code.addEventListener("scroll", () => {
   gutter.scrollTop = code.scrollTop;
 });

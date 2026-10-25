@@ -98,39 +98,37 @@
         <!-- 模拟笔试 -->
         <section class="view" id="view-exam">
           <div class="exam">
-            <div class="exam-left">
-              <div class="pane-title">题面</div>
-              <textarea id="problem" class="plain-area" rows="6" placeholder="把题目贴在这里，不会被使用，只是占位。"></textarea>
-
-              <div class="pane-title">自定义输入 stdin</div>
-              <textarea id="stdin" class="plain-area mono" rows="3" placeholder="留空则不喂输入"></textarea>
-
-              <div class="pane-title">期望输出</div>
-              <textarea id="expected" class="plain-area mono" rows="3" placeholder="留空则不比对，只跑"></textarea>
-
-              <div class="pane-title">语言</div>
+            <div class="exam-bar">
               <div class="lang-row" id="langRow"></div>
-            </div>
-
-            <div class="exam-right">
-              <div class="editor-bar">
+              <div class="exam-bar-right">
                 <span class="editor-info" id="editorInfo">Python 3</span>
                 <button class="primary-btn" id="runBtn" type="button">运行 ⌘R</button>
               </div>
+            </div>
 
-              <div class="editor" id="editorBox">
-                <div class="gutter" id="gutter"></div>
-                <textarea id="code" class="code-area" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
-              </div>
+            <div class="editor" id="editorBox">
+              <div class="gutter" id="gutter"></div>
+              <textarea id="code" class="code-area" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+            </div>
 
-              <div class="output">
-                <div class="out-head">
-                  <button class="out-tab active" type="button" data-out="stdout">输出</button>
-                  <button class="out-tab" type="button" data-out="stderr">错误</button>
-                  <span class="out-meta" id="runMeta"></span>
-                </div>
-                <pre id="outBody" class="out-body"></pre>
+            <div class="samples">
+              <label class="sample">
+                <span>测试样例 · 输入<em>会喂给 stdin</em></span>
+                <textarea id="stdin" class="sample-area" rows="3" placeholder="留空则不喂输入"></textarea>
+              </label>
+              <label class="sample">
+                <span>期望输出<em>留空则只跑，不比对</em></span>
+                <textarea id="expected" class="sample-area" rows="3" placeholder="填了就比对"></textarea>
+              </label>
+            </div>
+
+            <div class="output">
+              <div class="out-head">
+                <button class="out-tab active" type="button" data-out="stdout">输出</button>
+                <button class="out-tab" type="button" data-out="stderr">错误</button>
+                <span class="out-meta" id="runMeta"></span>
               </div>
+              <pre id="outBody" class="out-body"></pre>
             </div>
           </div>
         </section>
