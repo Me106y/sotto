@@ -1,6 +1,7 @@
 # Sotto
 
 > *The line only you can hear.*
+> 私有仓库：https://github.com/Me106y/sotto
 > 面试进行中，面试官开口，1.5 秒后你耳朵里响起「你自己」的答案。
 
 这是 PRD（`~/Documents/deepseek-harness/default-workspace/PRD-面试实时助手.md`）的 **M0 实现**。
@@ -66,6 +67,13 @@ cargo run -p sotto-desktop     # 开发模式，直接开窗
 `~/Applications/Sotto.app` 已经挂到 Dock 上，点一下直接开窗（不是终端）。
 它是个极薄的 bundle：`Contents/MacOS/Sotto` 是一个 `exec` 到 `target/release/sotto-desktop`
 的脚本，图标在 `Contents/Resources/Sotto.icns`。
+
+丢了或想重装：
+
+```bash
+./scripts/install-app.sh           # 只生成 App
+./scripts/install-app.sh --dock    # 顺带加进 Dock
+```
 
 ```bash
 # 重新编译后不用动 Dock，脚本每次启动都会找最新的二进制
