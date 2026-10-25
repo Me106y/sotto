@@ -111,19 +111,21 @@
               <textarea id="code" class="code-area" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
             </div>
 
-            <div class="samples">
-              <label class="sample">
-                <span>测试样例 · 输入<em>会喂给 stdin</em></span>
-                <textarea id="stdin" class="sample-area" rows="3" placeholder="留空则不喂输入"></textarea>
-              </label>
-            </div>
-
-            <div class="output">
-              <div class="out-head">
-                <span class="out-title">输出</span>
-                <span class="out-meta" id="runMeta"></span>
+            <div class="bottom">
+              <div class="samples">
+                <label class="sample">
+                  <span>测试样例 · 输入<em>会喂给 stdin</em></span>
+                  <textarea id="stdin" class="sample-area" rows="3" placeholder="留空则不喂输入"></textarea>
+                </label>
               </div>
-              <pre id="outBody" class="out-body"></pre>
+
+              <div class="output">
+                <div class="out-head">
+                  <span class="out-title">输出</span>
+                  <span class="out-meta" id="runMeta"></span>
+                </div>
+                <pre id="outBody" class="out-body"></pre>
+              </div>
             </div>
           </div>
         </section>
