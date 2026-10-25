@@ -1,0 +1,13 @@
+[package]
+name = "sotto-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sotto"
+path = "src/main.rs"
+
+[dependencies]
+sotto-core = { path = "../core" }
+sotto-index = { path = "../index" }
