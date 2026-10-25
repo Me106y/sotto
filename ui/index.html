@@ -80,6 +80,12 @@
           <div class="composer">
             <div class="input-wrap">
               <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"></textarea>
+              <button class="mic" id="speaker" type="button" title="朗读答案">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 9.5h3l4.5-3.5v12L7 14.5H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                  <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                </svg>
+              </button>
               <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" fill="none" stroke="currentColor" stroke-width="1.7" />
@@ -212,6 +218,27 @@
             <div class="actions">
               <button class="ghost-btn" id="probeBtn" type="button">测试连接</button>
               <span class="save-msg" id="probeMsg"></span>
+            </div>
+
+            <h3 class="sub-title">语音</h3>
+            <label class="field">
+              <span>朗读答案<em>用系统 say 合成，本地、不联网</em></span>
+              <select id="setSpeak" class="plain-select">
+                <option value="1">开</option>
+                <option value="0">关</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>音色</span>
+              <select id="setVoice" class="plain-select"></select>
+            </label>
+            <label class="field">
+              <span>语速<em>200 接近正常，240 偏快</em></span>
+              <input id="setRate" type="number" min="120" max="400" step="10" />
+            </label>
+            <div class="actions">
+              <button class="ghost-btn" id="ttsBtn" type="button">测一句</button>
+              <span class="save-msg" id="ttsMsg"></span>
             </div>
 
             <div class="actions">

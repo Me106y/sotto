@@ -54,6 +54,7 @@ const st = {
   diagnostics: [],
   busy: false,
   answerSeq: 0,
+  spoken: false,
 };
 
 const EXAMPLES = [
@@ -100,6 +101,19 @@ chips.append(
 
 micBtn.disabled = true;
 
+const speakerBtn = $("speaker");
+speakerBtn?.addEventListener("click", async () => {
+  if (!invoke) return;
+  const on = !(st.settings?.speak_enabled ?? true);
+  st.settings = { ...(st.settings || {}), speak_enabled: on };
+  speakerBtn.classList.toggle("off", !on);
+  $("setSpeak").value = on ? "1" : "0";
+  if (!on) invoke("stop_speech").catch(() => {});
+  try {
+    await invoke("save_settings", { cfg: readSettings() });
+  } catch (_) {}
+});
+
 if (!invoke) {
   setStatus("bad", "未在 Sotto 应用内运行");
   meta.textContent = "没有 Tauri 注入";
@@ -133,6 +147,7 @@ async function boot() {
   }
   renderLangs();
   loadEditor(st.lang);
+  loadVoices();
 }
 
 function applyStatus(s) {
@@ -188,6 +203,35 @@ async function send() {
   scrollToEnd();
 
   const reqId = ++st.answerSeq;
+  const turnStart = performance.now();
+  st.spoken = false;
+  st.speakAt = 0;
+  let speakBuf = "";
+  const say = async (text) => {
+    if (!st.settings?.speak_enabled) return;
+    const clean = text.replace(/[#*`]/g, "").trim();
+    if (!clean) return;
+    if (!st.spoken) {
+      st.spoken = true;
+      st.speakAt = performance.now() - turnStart;
+    }
+    try {
+      await invoke("speak", { text: clean });
+    } catch (_) {}
+  };
+  const flushSentences = (final) => {
+    const re = /^[\s\S]*?[。！？；!?;\n]/;
+    let m;
+    while ((m = speakBuf.match(re))) {
+      speakBuf = speakBuf.slice(m[0].length);
+      say(m[0]);
+    }
+    if (final && speakBuf.trim()) {
+      say(speakBuf);
+      speakBuf = "";
+    }
+  };
+  if (invoke) invoke("stop_speech").catch(() => {});
   const card = createAnswerCard();
   feed.appendChild(card);
   scrollToEnd();
@@ -200,14 +244,17 @@ async function send() {
       unlisten = await window.__TAURI__.event.listen("answer-delta", (e) => {
         if (!e.payload || e.payload.id !== reqId) return;
         streamed += e.payload.delta;
+        speakBuf += e.payload.delta;
+        flushSentences(false);
         renderStreaming(card, streamed);
         scrollToEnd();
       });
     }
 
     const res = await invoke("answer", { reqId, question: q, k: st.settings?.top_k ?? 3 });
+    flushSentences(true);
     renderAnswer(card, res);
-    meta.textContent = `首字 ${res.ttft_ms.toFixed(0)} ms · 共 ${res.total_ms.toFixed(0)} ms · ${res.chars} 字`;
+    meta.textContent = timingLine(res);
   } catch (e) {
     // 模型没配好或者挂了：退回「只给材料」，至少别让这一问白问
     card.remove();
@@ -258,13 +305,24 @@ function createAnswerCard() {
   return card;
 }
 
+/// 首字 / 开口 / 总耗时。
+/// 「开口」是「我们把第一句交给了 TTS」的时刻，不含 macOS 真正出声的几十毫秒——
+/// 那个数外面测不到，不如不假装有。
+function timingLine(res) {
+  const speak = st.spoken ? ` · 开口 ${st.speakAt.toFixed(0)} ms` : "";
+  return `首字 ${res.ttft_ms.toFixed(0)} ms${speak} · 共 ${res.total_ms.toFixed(0)} ms · ${res.chars} 字`;
+}
+
 function renderStreaming(card, text) {
+  // 命令返回之后，可能还有一两个 delta 在路上；别让它们把定稿覆盖回「生成中」
+  if (card._done) return;
   const { metaEl, body } = card._parts;
   body.textContent = text;
   metaEl.textContent = "生成中…";
 }
 
 function renderAnswer(card, res) {
+  card._done = true;
   const { metaEl, lead, body, sources } = card._parts;
   lead.textContent = res.lead || res.answer;
   lead.hidden = false;
@@ -276,7 +334,7 @@ function renderAnswer(card, res) {
   body.textContent = rest;
   body.hidden = !rest;
 
-  metaEl.textContent = `首字 ${res.ttft_ms.toFixed(0)} ms · 共 ${res.total_ms.toFixed(0)} ms · ${res.chars} 字`;
+  metaEl.textContent = timingLine(res);
 
   sources.innerHTML = "";
   (res.sources || []).forEach((s) => {
@@ -493,6 +551,9 @@ code.addEventListener("keydown", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && invoke) {
+    invoke("stop_speech").catch(() => {});
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r" && st.view === "exam") {
     e.preventDefault();
     runCode();
@@ -708,6 +769,12 @@ function fillSettings(cfg) {
   $("setModel").value = cfg.model ?? "";
   $("setBase").value = cfg.base_url ?? "";
   $("setTemp").value = cfg.temperature ?? 0.4;
+  $("setSpeak").value = cfg.speak_enabled ? "1" : "0";
+  $("setRate").value = cfg.speech_rate ?? 210;
+  if (cfg.voice && ![...$("setVoice").options].some((o) => o.value === cfg.voice)) {
+    $("setVoice").add(new Option(cfg.voice, cfg.voice));
+  }
+  $("setVoice").value = cfg.voice ?? "Tingting";
   $("setRoot").value = cfg.root ?? "";
   $("setIncludes").value = (cfg.includes ?? []).join(", ");
   $("setExcludes").value = (cfg.excludes ?? []).join(", ");
@@ -726,6 +793,9 @@ function readSettings() {
     model: $("setModel").value.trim(),
     base_url: $("setBase").value.trim(),
     temperature: Number($("setTemp").value) || 0.4,
+    speak_enabled: $("setSpeak").value === "1",
+    voice: $("setVoice").value || "Tingting",
+    speech_rate: Math.min(400, Math.max(120, Number($("setRate").value) || 210)),
     root: $("setRoot").value.trim(),
     includes: split($("setIncludes").value),
     excludes: split($("setExcludes").value),
@@ -747,6 +817,34 @@ $("saveBtn").addEventListener("click", async () => {
     msg.textContent = "已保存，索引已重建";
     msg.className = "save-msg ok";
     loadKb();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "save-msg bad";
+  }
+});
+
+async function loadVoices() {
+  if (!invoke) return;
+  try {
+    const list = await invoke("voices");
+    const sel = $("setVoice");
+    sel.innerHTML = "";
+    list.forEach((v) => sel.add(new Option(v, v)));
+    if (st.settings?.voice) sel.value = st.settings.voice;
+  } catch (_) {}
+}
+
+$("ttsBtn").addEventListener("click", async () => {
+  if (!invoke) return;
+  const msg = $("ttsMsg");
+  msg.textContent = "合成中…";
+  msg.className = "save-msg";
+  try {
+    await invoke("save_settings", { cfg: readSettings() });
+    const ms = await invoke("tts_probe");
+    // 这个数是「把整句合成成文件」的耗时，不是播放延迟——say 的出声时刻外面测不到
+    msg.textContent = ms > 0 ? `整句合成（写文件）${ms.toFixed(0)} ms，实际出声约 100 ms` : "合成失败，看看音色存不存在";
+    msg.className = "save-msg " + (ms > 0 ? "ok" : "bad");
   } catch (e) {
     msg.textContent = String(e);
     msg.className = "save-msg bad";

@@ -827,6 +827,21 @@ textarea::placeholder {
   tab-size: 4;
 }
 
+.plain-select {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: #ffffff;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: 0;
+}
+
+.plain-select:focus {
+  border-color: rgba(15, 157, 118, 0.45);
+}
+
 /* 静态检查出来的问题 */
 .problems {
   flex: none;

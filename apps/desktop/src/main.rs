@@ -8,6 +8,7 @@
 mod config;
 mod exec;
 mod llm;
+mod tts;
 mod kb;
 
 use std::sync::{Mutex, RwLock};
@@ -25,6 +26,7 @@ struct AppState {
     cfg: Mutex<Config>,
     kb: RwLock<Option<Kb>>,
     error: Mutex<Option<String>>,
+    speaker: tts::Speaker,
 }
 
 impl AppState {
@@ -328,6 +330,37 @@ async fn answer(
 }
 
 #[tauri::command]
+fn speak(state: tauri::State<'_, AppState>, text: String) -> Result<u64, String> {
+    let cfg = state.cfg.lock().unwrap().clone();
+    if !cfg.speak_enabled || text.trim().is_empty() {
+        return Ok(0);
+    }
+    Ok(state.speaker.enqueue(&text, &cfg.voice, cfg.speech_rate))
+}
+
+#[tauri::command]
+fn stop_speech(state: tauri::State<'_, AppState>) {
+    state.speaker.stop();
+}
+
+#[tauri::command]
+fn voices() -> Vec<String> {
+    tts::chinese_voices()
+}
+
+/// 量一次「合成一句话」要多久（不含播放）。对应 PRD 的 TTS 首包预算。
+#[tauri::command]
+async fn tts_probe(state: tauri::State<'_, AppState>) -> Result<f64, String> {
+    let cfg = state.cfg.lock().unwrap().clone();
+    let text = "这是语音合成的延迟测试。".to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        tts::synth_cost_ms(&text, &cfg.voice, cfg.speech_rate)
+    })
+    .await
+    .map_err(|e| format!("线程出错：{e}"))
+}
+
+#[tauri::command]
 fn runtimes() -> Vec<exec::RuntimeInfo> {
     exec::runtimes()
 }
@@ -463,6 +496,26 @@ const ASK_JS: &str = r#"
 })()
 "#;
 
+const TTS_JS: &str = r#"
+(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  try {
+    const ms = await window.__TAURI__.core.invoke('tts_probe');
+    const gen = await window.__TAURI__.core.invoke('speak', {
+      text: '这是第一句话，用来验证语音队列。第二句应该等第一句念完再开始，不会被切断。'
+    });
+    await wait(1500);
+    const voices = await window.__TAURI__.core.invoke('voices');
+    await window.__TAURI__.core.invoke('selftest_report', {
+      payload: 'PROBE[' + Number(ms).toFixed(0) + 'ms] GEN[' + gen + '] VOICES[' + voices.length + ':' + voices.slice(0,3).join('/') + ']',
+      tag: 'tts'
+    });
+  } catch (e) {
+    await window.__TAURI__.core.invoke('selftest_report', { payload: 'ERR ' + e, tag: 'tts' });
+  }
+})()
+"#;
+
 /// 静态检查探针：先塞一段坏代码，再塞一段好代码，看问题提示是否正确出现/消失。
 const LINT_JS: &str = r#"
 (async () => {
@@ -570,6 +623,7 @@ fn main() {
         kb: RwLock::new(None),
         error: Mutex::new(None),
         cfg: Mutex::new(cfg),
+        speaker: tts::Speaker::start(),
     };
     if let Err(e) = state.rebuild() {
         *state.error.lock().unwrap() = Some(e);
@@ -604,6 +658,8 @@ fn main() {
                             let _ = win.eval(&format!("window.__TAG='full';{MEASURE_JS}"));
                             std::thread::sleep(std::time::Duration::from_millis(900));
                             let _ = win.set_fullscreen(false);
+                        } else if mode == "tts" {
+                            let _ = win.eval(TTS_JS);
                         } else if mode == "ask" {
                             let _ = win.eval(ASK_JS);
                         } else if mode == "llm" {
@@ -633,6 +689,10 @@ fn main() {
             llm_status,
             llm_probe,
             answer,
+            speak,
+            stop_speech,
+            voices,
+            tts_probe,
             selftest_report
         ])
         .run(tauri::generate_context!())

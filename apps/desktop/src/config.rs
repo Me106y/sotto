@@ -26,6 +26,12 @@ pub struct Config {
     pub base_url: String,
     pub model: String,
     pub temperature: f64,
+
+    // ---- 语音 ----
+    pub speak_enabled: bool,
+    pub voice: String,
+    /// `say` 的语速，中文大致是字/分钟；200 接近正常语速
+    pub speech_rate: u32,
 }
 
 impl Default for Config {
@@ -56,6 +62,9 @@ impl Default for Config {
             base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
             model: "doubao-seed-2-0-mini-260428".into(),
             temperature: 0.4,
+            speak_enabled: true,
+            voice: "Tingting".into(),
+            speech_rate: 210,
         }
     }
 }
