@@ -13,7 +13,7 @@ use std::sync::{Mutex, RwLock};
 use std::time::Instant;
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{LogicalSize, Manager};
 
 use config::Config;
 use kb::{Kb, KbReport};
@@ -254,7 +254,7 @@ fn plain(text: &str) -> String {
 const SELFTEST_JS: &str = r#"
 (async () => {
   const text = (document.body.innerText || '').replace(/\s+/g, ' ').trim();
-  let out = 'DOM[' + text.slice(0, 40) + ']';
+  let out = 'WIN[' + window.innerWidth + 'x' + window.innerHeight + '] DOM[' + text.slice(0, 30) + ']';
   try {
     const st = await window.__TAURI__.core.invoke('status');
     out += ' STATUS[' + st.ready + '/' + st.chunks + '/' + st.files + ']';
@@ -297,6 +297,15 @@ fn main() {
     tauri::Builder::default()
         .manage(state)
         .setup(|app| {
+            // 不依赖配置能不能被读到：显式定尺寸、居中、显示。
+            // 有一次启动时窗口以默认尺寸且不可见地创建了，加这层兜底。
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_size(LogicalSize::new(1040.0, 720.0));
+                let _ = win.center();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+
             if std::env::var("SOTTO_SELFTEST").is_ok() {
                 if let Some(win) = app.get_webview_window("main") {
                     std::thread::spawn(move || {
