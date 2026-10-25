@@ -48,8 +48,7 @@ const st = {
   lang: "python",
   drafts: {},
   settings: null,
-  out: { stdout: "", stderr: "" },
-  outTab: "stdout",
+  outText: "",
   busy: false,
 };
 
@@ -323,9 +322,8 @@ function loadEditor(lang) {
   renderLangs();
   renderGutter();
   markError(null);
-  st.out = { stdout: "", stderr: "" };
-  st.outTab = "stdout";
-  setOutTab("stdout");
+  syncEditorHeight();
+  st.outText = "";
   renderOut();
   runMeta.textContent = "";
   runMeta.className = "out-meta";
@@ -356,13 +354,25 @@ function markError(line) {
 code.addEventListener("input", () => {
   renderGutter();
   markError(null);
+  syncEditorHeight();
 });
 // 粘贴/撤销/输入法这类路径不一定都走 input，兜一层
-code.addEventListener("keyup", renderGutter);
-code.addEventListener("change", renderGutter);
-code.addEventListener("scroll", () => {
-  gutter.scrollTop = code.scrollTop;
+code.addEventListener("keyup", () => {
+  renderGutter();
+  syncEditorHeight();
 });
+code.addEventListener("change", () => {
+  renderGutter();
+  syncEditorHeight();
+});
+function syncEditorHeight() {
+  if (!code) return;
+  const pane = $("editorBox")?.clientHeight ?? 0;
+  code.style.height = "auto";
+  code.style.height = Math.max(code.scrollHeight + 2, pane) + "px";
+}
+
+window.addEventListener("resize", syncEditorHeight);
 code.addEventListener("keydown", (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
@@ -400,22 +410,12 @@ async function runCode() {
       stdin: $("stdin").value,
     });
 
-    st.out = { stdout: r.stdout || "", stderr: r.stderr || "" };
+    st.outText = mergeOutput(r);
     markError(r.error_line);
-    setOutTab(r.stderr ? "stderr" : "stdout");
-
-    const expected = $("expected").value;
-    if (expected.trim() && r.status === "ok") {
-      const pass = (r.stdout || "").trim() === expected.trim();
-      runMeta.textContent = `${pass ? "✓ 通过" : "✗ 输出不匹配"} · ${r.duration_ms.toFixed(0)} ms`;
-      runMeta.className = "out-meta " + (pass ? "ok" : "bad");
-    } else {
-      runMeta.textContent = describe(r);
-      runMeta.className = "out-meta " + (r.status === "ok" ? "ok" : "bad");
-    }
+    runMeta.textContent = describe(r);
+    runMeta.className = "out-meta " + (r.status === "ok" ? "ok" : "bad");
   } catch (e) {
-    st.out = { stdout: "", stderr: String(e) };
-    setOutTab("stderr");
+    st.outText = String(e);
     markError(null);
     runMeta.textContent = "执行失败";
     runMeta.className = "out-meta bad";
@@ -435,21 +435,18 @@ function describe(r) {
   return `完成 · ${ms}`;
 }
 
-document.querySelectorAll(".out-tab").forEach((b) => {
-  b.addEventListener("click", () => setOutTab(b.dataset.out));
-});
-
-function setOutTab(name) {
-  st.outTab = name;
-  document.querySelectorAll(".out-tab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.out === name);
-  });
-  renderOut();
+/// 输出和报错合并成一块：有正常输出就先给输出，报错接在后面。
+/// 编译不过时 stdout 是空的，于是这里就只剩报错。
+function mergeOutput(r) {
+  const out = (r.stdout || "").trimEnd();
+  const err = (r.stderr || "").trimEnd();
+  if (out && err) return out + "\n\n--- 错误输出 ---\n" + err;
+  return out || err;
 }
 
 function renderOut() {
-  const text = st.out[st.outTab] || "";
-  outBody.textContent = text || (st.outTab === "stdout" ? "（没有输出）" : "（没有错误）");
+  const text = st.outText || "";
+  outBody.textContent = text || "（没有输出）";
   outBody.classList.toggle("dim", !text);
 }
 

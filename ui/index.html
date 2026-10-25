@@ -116,16 +116,11 @@
                 <span>测试样例 · 输入<em>会喂给 stdin</em></span>
                 <textarea id="stdin" class="sample-area" rows="3" placeholder="留空则不喂输入"></textarea>
               </label>
-              <label class="sample">
-                <span>期望输出<em>留空则只跑，不比对</em></span>
-                <textarea id="expected" class="sample-area" rows="3" placeholder="填了就比对"></textarea>
-              </label>
             </div>
 
             <div class="output">
               <div class="out-head">
-                <button class="out-tab active" type="button" data-out="stdout">输出</button>
-                <button class="out-tab" type="button" data-out="stderr">错误</button>
+                <span class="out-title">输出</span>
                 <span class="out-meta" id="runMeta"></span>
               </div>
               <pre id="outBody" class="out-body"></pre>

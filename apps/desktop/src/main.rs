@@ -205,8 +205,12 @@ async fn run_code(lang: String, code: String, stdin: String) -> Result<exec::Run
 
 /// 自检专用：把前端结果落到文件，绕开截图/窗口标题权限。
 #[tauri::command]
-fn selftest_report(payload: String) -> Result<(), String> {
-    std::fs::write("/tmp/sotto-selftest.txt", payload).map_err(|e| e.to_string())
+fn selftest_report(payload: String, tag: Option<String>) -> Result<(), String> {
+    let name = match tag.as_deref() {
+        Some(t) if !t.is_empty() => format!("/tmp/sotto-selftest-{t}.txt"),
+        _ => "/tmp/sotto-selftest.txt".to_string(),
+    };
+    std::fs::write(name, payload).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------- 文本处理
@@ -250,6 +254,47 @@ fn plain(text: &str) -> String {
 }
 
 // ---------------------------------------------------------------- 启动
+
+/// 对齐探针：把行号基线和代码行基线逐行比对，差值应为 0。
+/// 比截图可靠——截图只能靠眼睛，这个能给出小数。
+const MEASURE_JS: &str = r#"
+(async () => {
+  const ta = document.getElementById('code');
+  const pane = document.getElementById('editorBox');
+  const lns = () => document.querySelectorAll('#gutter .ln');
+  const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  ta.value = Array.from({length: 14}, (_, i) => 'line_' + (i + 1) + ' = ' + i).join('\n');
+  ta.dispatchEvent(new Event('input'));
+  await frame();
+
+  const cs = getComputedStyle(ta);
+  const lh = parseFloat(cs.lineHeight);
+  const padTop = parseFloat(cs.paddingTop);
+
+  const deltas = () => {
+    const ds = [];
+    [0, 1, 3, 7, 11, 13].forEach(i => {
+      const n = lns()[i];
+      if (!n) return;
+      const target = ta.getBoundingClientRect().top + padTop + i * lh;
+      ds.push((n.getBoundingClientRect().top - target).toFixed(1));
+    });
+    return ds.join(',');
+  };
+
+  const plain = deltas();
+  pane.scrollTop = 107;
+  await frame();
+  const scrolled = deltas();
+  pane.scrollTop = 0;
+
+  const payload = 'size=' + innerWidth + 'x' + innerHeight +
+    ' lines=' + lns().length + ' lh=' + lh +
+    ' plain=[' + plain + '] scrolled107=[' + scrolled + ']';
+  await window.__TAURI__.core.invoke('selftest_report', { payload, tag: window.__TAG });
+})()
+"#;
 
 const SELFTEST_JS: &str = r#"
 (async () => {
@@ -306,11 +351,26 @@ fn main() {
                 let _ = win.set_focus();
             }
 
-            if std::env::var("SOTTO_SELFTEST").is_ok() {
+            if let Ok(mode) = std::env::var("SOTTO_SELFTEST") {
                 if let Some(win) = app.get_webview_window("main") {
                     std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(1500));
-                        let _ = win.eval(SELFTEST_JS);
+                        std::thread::sleep(std::time::Duration::from_millis(2500));
+                        if mode == "align" {
+                            // 切到笔试页，再灌一段 14 行的代码，然后分别在
+                            // 普通窗口 / 全屏下量行号与代码的基线差
+                            let _ = win.eval("document.querySelector('[data-view=exam]').click();");
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            let _ = win.eval(&format!("window.__TAG='normal';{MEASURE_JS}"));
+                            std::thread::sleep(std::time::Duration::from_millis(900));
+                            let _ = win.set_fullscreen(true);
+                            std::thread::sleep(std::time::Duration::from_millis(1600));
+                            let _ = win.eval(&format!("window.__TAG='full';{MEASURE_JS}"));
+                            std::thread::sleep(std::time::Duration::from_millis(900));
+                            let _ = win.set_fullscreen(false);
+                        } else {
+                            let _ = win.eval(SELFTEST_JS);
+                        }
                     });
                 }
             }
