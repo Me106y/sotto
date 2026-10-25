@@ -20,6 +20,8 @@ const code = $("code");
 const gutter = $("gutter");
 const outBody = $("outBody");
 const runMeta = $("runMeta");
+const problems = $("problems");
+const pmText = $("pmText");
 const runBtn = $("runBtn");
 const langRow = $("langRow");
 const editorInfo = $("editorInfo");
@@ -49,6 +51,7 @@ const st = {
   drafts: {},
   settings: null,
   outText: "",
+  diagnostics: [],
   busy: false,
 };
 
@@ -323,6 +326,7 @@ function loadEditor(lang) {
   renderGutter();
   markError(null);
   syncEditorHeight();
+  clearCheck();
   st.outText = "";
   renderOut();
   runMeta.textContent = "";
@@ -342,19 +346,26 @@ function renderGutter() {
   gutter.appendChild(frag);
 }
 
-function markError(line) {
+function markLines(lines) {
   gutter.querySelectorAll(".ln.err").forEach((d) => d.classList.remove("err"));
-  code.classList.remove("has-err");
-  if (line && gutter.children[line - 1]) {
-    gutter.children[line - 1].classList.add("err");
-    code.classList.add("has-err");
-  }
+  (lines || []).forEach((n) => {
+    // EOF 类错误报在「最后一行之后」，夹到末行上才有东西可标
+    const idx = Math.min(Math.max(n, 1), gutter.children.length) - 1;
+    const el = gutter.children[idx];
+    if (el) el.classList.add("err");
+  });
+  code.classList.toggle("has-err", (lines || []).length > 0);
+}
+
+function markError(line) {
+  markLines(line ? [line] : []);
 }
 
 code.addEventListener("input", () => {
   renderGutter();
   markError(null);
   syncEditorHeight();
+  scheduleCheck();
 });
 // 粘贴/撤销/输入法这类路径不一定都走 input，兜一层
 code.addEventListener("keyup", () => {
@@ -397,8 +408,77 @@ document.addEventListener("keydown", (e) => {
 
 runBtn.addEventListener("click", runCode);
 
+// ---------------------------------------------------------------- 静态检查
+// 输入停顿后让编译器做语法检查，不用先跑一遍。
+let checkTimer = null;
+let checkToken = 0;
+
+function scheduleCheck() {
+  if (!invoke || st.view !== "exam") return;
+  if (checkTimer) clearTimeout(checkTimer);
+  // Java 编译一次要一秒，给它更长的静默窗口
+  checkTimer = setTimeout(runCheck, st.lang === "java" ? 900 : 450);
+}
+
+async function runCheck() {
+  const token = ++checkToken;
+  if (!code.value.trim()) {
+    showProblems([]);
+    return;
+  }
+  try {
+    const list = await invoke("check", { lang: st.lang, code: code.value });
+    if (token !== checkToken) return; // 已经有更新的一次检查在路上了
+    showProblems(list || []);
+  } catch (_) {
+    // 检查失败不该打断写代码，静默就好
+  }
+}
+
+function clearCheck() {
+  checkToken++;
+  if (checkTimer) clearTimeout(checkTimer);
+  showProblems([]);
+}
+
+function showProblems(list) {
+  st.diagnostics = list;
+  markLines(list.map((d) => d.line));
+  if (!list.length) {
+    problems.hidden = true;
+    return;
+  }
+  const first = list[0];
+  pmText.textContent =
+    list.length === 1
+      ? `第 ${first.line} 行 · ${first.message}`
+      : `${list.length} 个问题 · 第 ${first.line} 行 ${first.message}`;
+  problems.hidden = false;
+}
+
+problems.addEventListener("click", () => {
+  if (st.diagnostics.length) gotoLine(st.diagnostics[0].line);
+});
+
+/// 把光标放到第 n 行，并滚到可见范围中间。
+function gotoLine(n) {
+  const lines = code.value.split("\n");
+  const target = Math.min(Math.max(n, 1), lines.length);
+  let offset = 0;
+  for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1;
+  code.focus();
+  code.setSelectionRange(offset, offset + (lines[target - 1] || "").length);
+
+  const pane = $("editorBox");
+  const lineTop = 12 + (target - 1) * 20;
+  if (lineTop < pane.scrollTop || lineTop + 20 > pane.scrollTop + pane.clientHeight) {
+    pane.scrollTop = Math.max(0, lineTop - pane.clientHeight / 2);
+  }
+}
+
 async function runCode() {
   if (!invoke) return;
+  clearCheck();
   runBtn.disabled = true;
   runMeta.textContent = "运行中…";
   runMeta.className = "out-meta";

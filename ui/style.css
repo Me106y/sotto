@@ -748,6 +748,42 @@ textarea::placeholder {
   tab-size: 4;
 }
 
+/* 静态检查出来的问题 */
+.problems {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid #f0d2d2;
+  background: #fdf4f4;
+  color: #b23b3b;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.problems[hidden] {
+  display: none;
+}
+
+.pm-dot {
+  font-size: 8px;
+  line-height: 1;
+}
+
+.pm-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-hint {
+  margin-left: auto;
+  color: #c98a8a;
+  font-size: 10.5px;
+}
+
 /* 底部：左测试样例 / 右输出 */
 .bottom {
   flex: none;

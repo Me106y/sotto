@@ -192,6 +192,13 @@ fn search(state: tauri::State<'_, AppState>, query: String, k: usize) -> Result<
 }
 
 #[tauri::command]
+async fn check(lang: String, code: String) -> Result<Vec<exec::Diagnostic>, String> {
+    tauri::async_runtime::spawn_blocking(move || exec::check(&lang, &code))
+        .await
+        .map_err(|e| format!("检查线程出错：{e}"))?
+}
+
+#[tauri::command]
 fn runtimes() -> Vec<exec::RuntimeInfo> {
     exec::runtimes()
 }
@@ -254,6 +261,66 @@ fn plain(text: &str) -> String {
 }
 
 // ---------------------------------------------------------------- 启动
+
+const LINT2_JS: &str = r#"
+(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  document.querySelector('[data-view=exam]').click();
+  await wait(200);
+  const ta = document.getElementById('code');
+  const chip = (label) => [...document.querySelectorAll('.lang-chip')].find(b => b.textContent.includes(label));
+  const read = () => {
+    const p = document.getElementById('problems');
+    return p.hidden ? '(无)' : (document.getElementById('pmText').textContent || '').trim().slice(0, 60);
+  };
+
+  chip('JavaScript').click();
+  await wait(150);
+  ta.value = 'const a = {';
+  ta.dispatchEvent(new Event('input'));
+  await wait(1400);
+  const js = read();
+
+  chip('C++17').click();
+  await wait(150);
+  ta.value = 'int main() { int x = ; return 0; }';
+  ta.dispatchEvent(new Event('input'));
+  await wait(1800);
+  const cpp = read();
+
+  await window.__TAURI__.core.invoke('selftest_report', {
+    payload: 'js=' + js + ' | cpp=' + cpp, tag: 'lint2'
+  });
+})()
+"#;
+
+/// 静态检查探针：先塞一段坏代码，再塞一段好代码，看问题提示是否正确出现/消失。
+const LINT_JS: &str = r#"
+(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  document.querySelector('[data-view=exam]').click();
+  await wait(200);
+  const ta = document.getElementById('code');
+  const read = () => {
+    const p = document.getElementById('problems');
+    return {
+      hidden: p.hidden,
+      text: (document.getElementById('pmText').textContent || '').trim(),
+      marked: document.querySelectorAll('#gutter .ln.err').length
+    };
+  };
+  ta.value = 'def f():\n  return 1\nprint(f(';
+  ta.dispatchEvent(new Event('input'));
+  await wait(1600);
+  const bad = read();
+  ta.value = 'print(1)';
+  ta.dispatchEvent(new Event('input'));
+  await wait(1600);
+  const good = read();
+  const payload = 'bad=' + JSON.stringify(bad) + ' good=' + JSON.stringify(good);
+  await window.__TAURI__.core.invoke('selftest_report', { payload, tag: 'lint' });
+})()
+"#;
 
 /// 对齐探针：把行号基线和代码行基线逐行比对，差值应为 0。
 /// 比截图可靠——截图只能靠眼睛，这个能给出小数。
@@ -368,6 +435,10 @@ fn main() {
                             let _ = win.eval(&format!("window.__TAG='full';{MEASURE_JS}"));
                             std::thread::sleep(std::time::Duration::from_millis(900));
                             let _ = win.set_fullscreen(false);
+                        } else if mode == "lint" {
+                            let _ = win.eval(LINT_JS);
+                        } else if mode == "lint2" {
+                            let _ = win.eval(LINT2_JS);
                         } else {
                             let _ = win.eval(SELFTEST_JS);
                         }
@@ -385,6 +456,7 @@ fn main() {
             reindex,
             runtimes,
             run_code,
+            check,
             selftest_report
         ])
         .run(tauri::generate_context!())
