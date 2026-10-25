@@ -7,8 +7,11 @@ const sendBtn = document.getElementById("send");
 const micBtn = document.getElementById("mic");
 const meta = document.getElementById("meta");
 const statusText = document.getElementById("statusText");
-const statusDot = document.querySelector("#status .dot");
+const dot = document.getElementById("dot");
 const chips = document.getElementById("chips");
+const kvFiles = document.getElementById("kvFiles");
+const kvChunks = document.getElementById("kvChunks");
+const kvScope = document.getElementById("kvScope");
 
 const EXAMPLES = [
   "你们那个系统，置信度不够的时候怎么处理？",
@@ -37,17 +40,22 @@ micBtn.disabled = true;
 
 if (!invoke) {
   setStatus("bad", "未在 Sotto 应用内运行");
-  meta.textContent = "请在 Sotto 桌面应用里打开这个界面（当前没有 Tauri 注入）。";
+  meta.textContent = "没有 Tauri 注入";
 } else {
   invoke("status")
     .then((s) => {
+      kvFiles.textContent = `${s.files} 篇`;
+      kvChunks.textContent = `${s.chunks} 段`;
+      kvScope.textContent = shortScope(s.scope);
+      kvScope.title = Array.isArray(s.scope) ? s.scope.join(" / ") : "";
+
       if (!s.ready) {
         setStatus("bad", "索引不可用");
         appendError(s.error || "索引未就绪");
         return;
       }
-      setStatus("ok", `${s.files} 篇 · ${s.chunks} 段`);
-      meta.textContent = `索引 ${s.chunks} 段材料，来源：${shortScope(s.scope)}`;
+      setStatus("ok", "就绪");
+      meta.textContent = `${s.chunks} 段可选`;
     })
     .catch((e) => {
       setStatus("bad", "初始化失败");
@@ -56,14 +64,14 @@ if (!invoke) {
 }
 
 function setStatus(kind, text) {
-  statusDot.className = "dot" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
+  dot.className = "dot" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
   statusText.textContent = text;
 }
 
 function shortScope(scope) {
   if (!Array.isArray(scope) || scope.length === 0) return "—";
   const dirs = scope.slice(1);
-  return dirs.length ? dirs.join(" / ") : scope[0];
+  return dirs.length ? dirs.join(" · ") : scope[0].split("/").pop();
 }
 
 // ---------------------------------------------------------------- 交互
@@ -79,7 +87,7 @@ sendBtn.addEventListener("click", () => send());
 
 function resize() {
   input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 108) + "px";
+  input.style.height = Math.min(input.scrollHeight, 104) + "px";
 }
 
 async function send() {
@@ -100,10 +108,11 @@ async function send() {
     const res = await invoke("search", { query: q, k: 3 });
     thinking.remove();
     appendResults(res);
-    meta.textContent = `${res.hits.length} 条命中 · ${res.took_ms.toFixed(1)} ms · 索引 ${res.chunks} 段`;
+    meta.textContent = `${res.hits.length} 条命中 · ${res.took_ms.toFixed(1)} ms`;
   } catch (e) {
     thinking.remove();
     appendError(String(e));
+    meta.textContent = "检索失败";
   } finally {
     busy = false;
     sendBtn.disabled = false;
@@ -144,7 +153,7 @@ function appendResults(res) {
 
   const note = document.createElement("p");
   note.className = "note";
-  note.textContent = `命中 ${res.hits.length} 条材料（M0 只做检索，未接模型）`;
+  note.textContent = `命中 ${res.hits.length} 条材料 · 未接模型，以下是原文摘录`;
   feed.appendChild(note);
 
   res.hits.forEach((h) => feed.appendChild(renderCard(h)));

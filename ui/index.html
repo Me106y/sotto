@@ -7,78 +7,91 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="app">
-      <header class="top">
-        <div class="brand">
+    <div class="workspace">
+      <!-- 左侧栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-head">
           <div class="mark">s</div>
-          <div class="brand-text">
-            <h1>Sotto</h1>
-            <p>只有你听得见的那句台词</p>
+          <span class="vault-name">Sotto</span>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" type="button" data-mode="interview">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h11M4 18h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" />
+            </svg>
+            <span>模拟面试</span>
+          </button>
+          <button class="nav-item" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9 8-4 4 4 4M15 8l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+            <span>模拟笔试</span>
+            <em class="tag">v0.2</em>
+          </button>
+        </nav>
+
+        <div class="section-label">知识库</div>
+        <div class="kv">
+          <div class="kv-row"><span>文件</span><b id="kvFiles">—</b></div>
+          <div class="kv-row"><span>切片</span><b id="kvChunks">—</b></div>
+          <div class="kv-row"><span>来源</span><b id="kvScope">—</b></div>
+        </div>
+
+        <div class="sidebar-foot">
+          <button class="nav-item" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none" />
+              <path d="M12 3v2m0 14v2M3 12h2m14 0h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <span>设置</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- 主区 -->
+      <main class="main">
+        <div class="tabbar">
+          <div class="tab active">
+            <span class="dot-mark"></span>
+            模拟面试
           </div>
         </div>
-        <div class="status" id="status">
-          <span class="dot"></span><span id="statusText">索引中…</span>
+
+        <div class="feed" id="feed">
+          <section class="empty" id="empty">
+            <h2>今天练哪一面？</h2>
+            <p>你当面试官，我来答。答案只从你自己的材料里长出来。</p>
+            <div class="chips" id="chips"></div>
+            <p class="hint">M0 · 模型未接入，返回的是命中材料本身。</p>
+          </section>
         </div>
-      </header>
 
-      <nav class="tabs">
-        <button class="tab active" type="button">模拟面试</button>
-        <button class="tab" type="button" disabled>
-          模拟笔试<span class="badge">v0.2</span>
-        </button>
-      </nav>
+        <div class="composer">
+          <div class="input-wrap">
+            <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"></textarea>
+            <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" fill="none" stroke="currentColor" stroke-width="1.7" />
+                <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+              </svg>
+            </button>
+            <button class="send" id="send" type="button" title="发送">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
-      <main class="feed" id="feed">
-        <section class="empty" id="empty">
-          <div class="empty-mark">s</div>
-          <h2>今天练哪一面？</h2>
-          <p>你当面试官，我来答。答案只从你自己的材料里长出来。</p>
-          <div class="chips" id="chips"></div>
-          <p class="hint">
-            M0 · 模型未接入。现在返回的是命中材料本身，用来先验证「找得对不对」。
-          </p>
-        </section>
+        <footer class="statusbar">
+          <span class="sb-left">
+            <i class="dot" id="dot"></i>
+            <span id="statusText">索引中…</span>
+          </span>
+          <span class="sb-right" id="meta"></span>
+        </footer>
       </main>
-
-      <footer class="composer">
-        <div class="input-wrap">
-          <textarea
-            id="input"
-            rows="1"
-            placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"
-          ></textarea>
-          <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.7"
-              />
-              <path
-                d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.7"
-                stroke-linecap="round"
-              />
-            </svg>
-          </button>
-          <button class="send" id="send" type="button" title="发送">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 19V5m0 0-6 6m6-6 6 6"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
-        <div class="meta" id="meta"></div>
-      </footer>
     </div>
     <script src="app.js"></script>
   </body>

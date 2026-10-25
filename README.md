@@ -38,6 +38,11 @@ crates/
 
 ## 桌面 UI（Tauri 2）
 
+界面风格参考 Obsidian：左侧栏 + 标签页 + 状态栏，扁平、低圆角、高密度。窗口默认 1040 × 720。
+
+![空状态](docs/ui-empty.png)
+![检索结果](docs/ui-search.png)
+
 ```bash
 cargo run -p sotto-desktop     # 开发模式，直接开窗
 ```
