@@ -1,17 +1,17 @@
-/* 视觉参考 Obsidian 深色主题：扁平、低圆角、细边框、高密度 */
+/* 视觉参考 Obsidian 浅色主题：扁平、低圆角、细边框、高密度 */
 :root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #161616;
-  --bg-card: #232323;
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  --bg-active: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.13);
-  --text: #dadada;
-  --text-muted: #9a9a9a;
-  --text-faint: #7c7c7c;
-  --accent: #6ee7b7;
-  --accent-dim: rgba(110, 231, 183, 0.14);
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f6f6;
+  --bg-card: #fafafa;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.07);
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --text: #222222;
+  --text-muted: #5c5c5c;
+  --text-faint: #8a8a8a;
+  --accent: #0f9d76;
+  --accent-dim: rgba(15, 157, 118, 0.1);
   --radius-s: 4px;
   --radius-m: 6px;
   --radius-l: 8px;
@@ -36,6 +36,10 @@ body {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
+}
+
+::selection {
+  background: rgba(15, 157, 118, 0.18);
 }
 
 .workspace {
@@ -68,7 +72,7 @@ body {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-s);
-  background: #262626;
+  background: #ffffff;
   border: 1px solid var(--border);
   color: var(--accent);
   font-size: 15px;
@@ -110,7 +114,7 @@ body {
   width: 15px;
   height: 15px;
   flex: none;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
 .nav-item:hover:not(:disabled) {
@@ -130,7 +134,7 @@ body {
 
 .nav-item:disabled {
   cursor: default;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .tag {
@@ -239,7 +243,7 @@ body {
 }
 
 .feed::-webkit-scrollbar-thumb {
-  background: #383838;
+  background: #d8d8d8;
   border-radius: 5px;
 }
 
@@ -275,7 +279,7 @@ body {
   text-align: left;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  background: var(--bg-card);
+  background: #ffffff;
   color: var(--text-muted);
   font-family: inherit;
   font-size: 12px;
@@ -286,7 +290,7 @@ body {
 
 .chip:hover {
   border-color: var(--border-strong);
-  background: #272727;
+  background: #fbfbfb;
   color: var(--text);
 }
 
@@ -308,7 +312,7 @@ body {
   margin: 0;
   padding: 8px 12px;
   border-radius: var(--radius-m);
-  background: #2a2a2a;
+  background: #f1f1f1;
   border: 1px solid var(--border);
   font-size: 13px;
   line-height: 1.55;
@@ -350,7 +354,7 @@ body {
   width: 15px;
   height: 15px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--text-muted);
   font-size: 9px;
   flex: none;
@@ -365,9 +369,9 @@ body {
 
 .score {
   color: var(--accent);
-  opacity: 0.9;
   font-variant-numeric: tabular-nums;
   flex: none;
+  font-weight: 500;
 }
 
 .lead {
@@ -376,14 +380,14 @@ body {
   border-left: 2px solid var(--accent);
   font-size: 13.5px;
   line-height: 1.62;
-  color: #eaeaea;
+  color: #1f1f1f;
 }
 
 .body {
   margin: 7px 0 0;
   font-size: 11.5px;
   line-height: 1.65;
-  color: #8e8e8e;
+  color: #6b6b6b;
 }
 
 .thinking {
@@ -410,10 +414,10 @@ body {
 
 .error {
   padding: 9px 12px;
-  border: 1px solid #4a2e2e;
+  border: 1px solid #f0cdcd;
   border-radius: var(--radius-m);
-  background: #241a1a;
-  color: #e8a0a0;
+  background: #fdf3f3;
+  color: #b23b3b;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -432,12 +436,13 @@ body {
   padding: 7px 7px 7px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  background: #1a1a1a;
-  transition: border-color 0.12s;
+  background: #ffffff;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .input-wrap:focus-within {
-  border-color: rgba(110, 231, 183, 0.35);
+  border-color: rgba(15, 157, 118, 0.45);
+  box-shadow: 0 0 0 3px rgba(15, 157, 118, 0.07);
 }
 
 textarea {
@@ -455,7 +460,7 @@ textarea {
 }
 
 textarea::placeholder {
-  color: #5a5a5a;
+  color: #a8a8a8;
 }
 
 .mic,
@@ -485,21 +490,21 @@ textarea::placeholder {
 }
 
 .mic:disabled {
-  opacity: 0.35;
+  opacity: 0.4;
   cursor: default;
 }
 
 .send {
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .send:hover:not(:disabled) {
-  background: rgba(110, 231, 183, 0.22);
+  background: #0c8a67;
 }
 
 .send:disabled {
-  background: transparent;
+  background: rgba(0, 0, 0, 0.06);
   color: var(--text-faint);
 }
 
@@ -537,7 +542,7 @@ textarea::placeholder {
 }
 
 .dot.bad {
-  background: #e06c6c;
+  background: #d14343;
 }
 
 @keyframes rise {
