@@ -36,6 +36,63 @@ crates/
 
 ---
 
+## 桌面 UI（Tauri 2）
+
+```bash
+cargo run -p sotto-desktop     # 开发模式，直接开窗
+```
+
+界面在 `ui/`：纯 HTML/CSS/JS，没有打包器、没有 npm。Tauri 在编译期把整个目录嵌进二进制，
+所以 `target/release/sotto-desktop` 是自包含的——拷到别的机器也能跑（前提是语料路径对）。
+
+**当前 UI 有什么**
+
+- 顶栏：产品名 + tagline + 索引状态（几篇 / 几段）
+- 两个模式页签：模拟面试（可用）/ 模拟笔试（灰着，标 v0.2）
+- 对话流：你的问题 → 命中材料卡片（来源 · 标题 · 相似度 · 首句高亮 · 正文）
+- 输入区：Enter 发送 / Shift+Enter 换行；麦克风按钮灰着（M0 未接语音）
+- 底栏实时显示「命中几条 · 检索几毫秒」
+
+**它还不是什么**：没有模型生成（返回的是材料本身）、没有语音、没有悬浮条、没有知识库设置页。
+这几样按 PRD 的 M1 / M2 顺序补。
+
+### Dock 启动
+
+`~/Applications/Sotto.app` 已经挂到 Dock 上，点一下直接开窗（不是终端）。
+它是个极薄的 bundle：`Contents/MacOS/Sotto` 是一个 `exec` 到 `target/release/sotto-desktop`
+的脚本，图标在 `Contents/Resources/Sotto.icns`。
+
+```bash
+# 重新编译后不用动 Dock，脚本每次启动都会找最新的二进制
+cargo build --release -p sotto-desktop
+```
+
+换图标、改参数、移出 Dock：改 `Contents/Resources/Sotto.icns` / `Contents/MacOS/Sotto`，
+或右键图标 → 选项 → 从程序坞中移除。
+
+### 自检
+
+没有截图权限的环境里，用这个确认 UI 真的活了——它会把 DOM 文本、`status`、`search` 的结果写进文件：
+
+```bash
+SOTTO_SELFTEST=1 ./target/release/sotto-desktop
+# 几秒后
+cat /tmp/sotto-selftest.txt
+# DOM[s Sotto … 25 篇 · 487 段 …] STATUS[true/487/25] SEARCH[2/5.5ms] TOP[问题准备-SGS.md] LEAD[代码里确实实现了…]
+```
+
+### 作用域怎么改
+
+默认读 `~/Desktop/Note`，圈 `项目经历 / 面试准备 / 学习`。用环境变量覆盖：
+
+```bash
+SOTTO_ROOT=~/Notes SOTTO_INCLUDE=项目经历,面试准备 cargo run -p sotto-desktop
+```
+
+设置页（PRD F6）还没做，M1 再补。
+
+---
+
 ## 跑出来的数字（真实语料 `~/Desktop/Note`）
 
 ```

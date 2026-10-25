@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sotto</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <div class="brand">
+          <div class="mark">s</div>
+          <div class="brand-text">
+            <h1>Sotto</h1>
+            <p>只有你听得见的那句台词</p>
+          </div>
+        </div>
+        <div class="status" id="status">
+          <span class="dot"></span><span id="statusText">索引中…</span>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" type="button">模拟面试</button>
+        <button class="tab" type="button" disabled>
+          模拟笔试<span class="badge">v0.2</span>
+        </button>
+      </nav>
+
+      <main class="feed" id="feed">
+        <section class="empty" id="empty">
+          <div class="empty-mark">s</div>
+          <h2>今天练哪一面？</h2>
+          <p>你当面试官，我来答。答案只从你自己的材料里长出来。</p>
+          <div class="chips" id="chips"></div>
+          <p class="hint">
+            M0 · 模型未接入。现在返回的是命中材料本身，用来先验证「找得对不对」。
+          </p>
+        </section>
+      </main>
+
+      <footer class="composer">
+        <div class="input-wrap">
+          <textarea
+            id="input"
+            rows="1"
+            placeholder="问点什么…（Enter 发送，Shift + Enter 换行）"
+          ></textarea>
+          <button class="mic" id="mic" type="button" title="语音输入：M0 未接入">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+              />
+              <path
+                d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <button class="send" id="send" type="button" title="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 19V5m0 0-6 6m6-6 6 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="meta" id="meta"></div>
+      </footer>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

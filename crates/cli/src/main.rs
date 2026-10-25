@@ -49,6 +49,7 @@ fn main() -> ExitCode {
         "ask" => cmd_ask(rest),
         "verify" => cmd_verify(rest),
         "prompt" => cmd_prompt(rest),
+        "chat" => cmd_chat(rest),
         "latency" => cmd_latency(rest),
         "budget" => cmd_budget(rest),
         other => {
@@ -222,6 +223,70 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
         hits.len(),
         sotto_core::prompt::char_count(&p.user)
     );
+    Ok(())
+}
+
+/// 交互式检索：给 Dock / 终端用的最小可用形态。
+/// 现在只显示「命中了哪几段材料」，不假装生成答案——模型还没接。
+fn cmd_chat(args: &[String]) -> Result<(), String> {
+    use std::io::{self, BufRead, Write};
+
+    let k: usize = flag_value(args, "--k")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+
+    let cfg = scan_cfg(args);
+    let (chunks, scan) = build_corpus(&cfg).map_err(|e| e.to_string())?;
+    let retriever = HybridRetriever::new(chunks);
+
+    println!("Sotto · M0");
+    println!(
+        "{} 篇笔记 → {} 个 chunk   作用域：{}",
+        scan.files.len(),
+        retriever.len(),
+        cfg.root.display()
+    );
+    println!("模型未接入，下面只显示检索到的材料。输入问题回车，q 退出。\n");
+
+    let stdin = io::stdin();
+    loop {
+        print!("问> ");
+        let _ = io::stdout().flush();
+
+        let mut line = String::new();
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        let q = line.trim();
+        if q.is_empty() {
+            continue;
+        }
+        if matches!(q, "q" | "quit" | "exit") {
+            break;
+        }
+        if q == "?" {
+            println!("直接输问题。检索范围：{}，相似度前 {} 条\n", cfg.root.display(), k);
+            continue;
+        }
+
+        let t = Instant::now();
+        let hits = retriever.search(q, k);
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        if hits.is_empty() {
+            println!("   没命中。可能是作用域没圈到，或者这条笔记还没写。\n");
+            continue;
+        }
+        for (i, h) in hits.iter().enumerate() {
+            println!("  {}. [{}] {:.2}分", i + 1, h.chunk.source, h.score);
+            println!("     {}", h.chunk.heading);
+            println!("     {}", h.chunk.excerpt(110));
+        }
+        println!("  —— {} 条 / {:.1} ms\n", hits.len(), ms);
+    }
+    println!("拜拜。");
     Ok(())
 }
 
@@ -486,6 +551,9 @@ fn print_help() {
 
   sotto prompt  --root <笔记目录> [--k 5] <问题>
       打印真实材料拼出来的 prompt（system + user），用于核对注入质量
+
+  sotto chat    --root <笔记目录> [--include 子目录]... [--k 3]
+      交互式检索（Dock 图标启动的就是它）
 
   sotto verify  --root <笔记目录> --file 问题.txt [--k 3]
       批量验证召回率。每行：问题|||关键词|||期望路径片段
