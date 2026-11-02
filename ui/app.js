@@ -145,6 +145,11 @@ async function boot() {
   } catch (_) {
     /* 没配置就先用默认 */
   }
+  // 配置里存的语言本机没装（比如换机器后 go 不可用）就退到第一个能用的。
+  if (st.runtimes.length && !st.runtimes.some((r) => r.id === st.lang && r.available)) {
+    const first = st.runtimes.find((r) => r.available);
+    if (first) st.lang = first.id;
+  }
   renderLangs();
   loadEditor(st.lang);
   loadVoices();
