@@ -436,12 +436,12 @@ const LINT2_JS: &str = r#"
     return p.hidden ? '(无)' : (document.getElementById('pmText').textContent || '').trim().slice(0, 60);
   };
 
-  chip('JavaScript').click();
+  chip('Go').click();
   await wait(150);
-  ta.value = 'const a = {';
+  ta.value = 'package main\n\nfunc main() {\n\tx :=\n}';
   ta.dispatchEvent(new Event('input'));
-  await wait(1400);
-  const js = read();
+  await wait(2000);
+  const go = read();
 
   chip('C++17').click();
   await wait(150);
@@ -451,7 +451,7 @@ const LINT2_JS: &str = r#"
   const cpp = read();
 
   await window.__TAURI__.core.invoke('selftest_report', {
-    payload: 'js=' + js + ' | cpp=' + cpp, tag: 'lint2'
+    payload: 'go=' + go + ' | cpp=' + cpp, tag: 'lint2'
   });
 })()
 "#;
@@ -607,6 +607,22 @@ const SELFTEST_JS: &str = r#"
       lang: 'python', code: 'x=1\nprint(y)', stdin: ''
     });
     out += ' ERR[' + bad.status + '/' + bad.error_line + ']';
+    const cpp = await window.__TAURI__.core.invoke('run_code', {
+      lang: 'cpp',
+      code: '#include <bits/stdc++.h>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a+b<<std::endl;return 0;}',
+      stdin: '1 2'
+    });
+    out += ' CPP[' + cpp.status + ':' + cpp.stdout.trim() + ']';
+    const go = await window.__TAURI__.core.invoke('run_code', {
+      lang: 'go',
+      code: 'package main\n\nimport (\n\t"bufio"\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tin := bufio.NewReader(os.Stdin)\n\tvar n int\n\tfmt.Fscan(in, &n)\n\tsum := 0\n\tfor i := 0; i < n; i++ {\n\t\tvar v int\n\t\tfmt.Fscan(in, &v)\n\t\tsum += v\n\t}\n\tfmt.Println(sum)\n}',
+      stdin: '5\n1 2 3 4 5'
+    });
+    out += ' GO[' + go.status + ':' + go.stdout.trim() + ']';
+    const goBad = await window.__TAURI__.core.invoke('run_code', {
+      lang: 'go', code: 'package main\n\nfunc main() {\n\tx :=\n}', stdin: ''
+    });
+    out += ' GOERR[' + goBad.status + '/' + goBad.error_line + ']';
   } catch (e) { out += ' EXC[' + String(e).slice(0, 90) + ']'; }
   try { await window.__TAURI__.core.invoke('selftest_report', { payload: out }); }
   catch (e) { document.title = 'REPORT_FAIL'; }

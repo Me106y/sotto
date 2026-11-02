@@ -33,32 +33,124 @@ pub struct RunResult {
 }
 
 pub fn runtimes() -> Vec<RuntimeInfo> {
-    let probes: [(&str, &str, &str, &str); 4] = [
-        ("python", "Python 3", "python3", "--version"),
-        ("javascript", "JavaScript", "node", "--version"),
-        ("java", "Java", "javac", "-version"),
-        ("cpp", "C++17", "g++", "--version"),
-    ];
-    probes
-        .iter()
-        .map(|(id, label, bin, arg)| {
-            let out = Command::new(bin).arg(arg).output();
-            match out {
-                Ok(o) if o.status.success() => RuntimeInfo {
-                    id: id.to_string(),
-                    label: label.to_string(),
-                    available: true,
-                    version: first_line(&o.stdout).or_else(|| first_line(&o.stderr)).unwrap_or_default(),
-                },
-                _ => RuntimeInfo {
-                    id: id.to_string(),
-                    label: label.to_string(),
-                    available: false,
-                    version: String::new(),
-                },
+    let cpp = match cpp_compiler() {
+        Some(bin) => probe("cpp", "C++17", bin, "--version"),
+        None => RuntimeInfo {
+            id: "cpp".into(),
+            label: "C++17".into(),
+            available: false,
+            version: String::new(),
+        },
+    };
+    vec![
+        probe("python", "Python 3", "python3", "--version"),
+        cpp,
+        probe("go", "Go", "go", "version"),
+    ]
+}
+
+fn probe(id: &str, label: &str, bin: &str, arg: &str) -> RuntimeInfo {
+    match command(bin).arg(arg).output() {
+        Ok(o) if o.status.success() => RuntimeInfo {
+            id: id.to_string(),
+            label: label.to_string(),
+            available: true,
+            version: first_line(&o.stdout).or_else(|| first_line(&o.stderr)).unwrap_or_default(),
+        },
+        _ => RuntimeInfo {
+            id: id.to_string(),
+            label: label.to_string(),
+            available: false,
+            version: String::new(),
+        },
+    }
+}
+
+/// 找 C++ 编译器。`g++` 不是每个平台都有，`clang++` 次之，`c++` 兜底。
+fn cpp_compiler() -> Option<&'static str> {
+    ["g++", "clang++", "c++"].into_iter().find(|bin| {
+        command(bin)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+}
+
+/// 从 Finder 启动的 GUI 进程拿不到 shell 的 PATH（只有 `/usr/bin:/bin:...`），
+/// Homebrew 装的 go 会「明明装了却找不到」。先查 PATH，再补常见目录。
+fn resolve_bin(bin: &str) -> Option<String> {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join(bin);
+            if p.is_file() {
+                return Some(p.to_string_lossy().into_owned());
             }
-        })
-        .collect()
+        }
+    }
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        let p = Path::new(dir).join(bin);
+        if p.is_file() {
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+fn command(bin: &str) -> Command {
+    Command::new(resolve_bin(bin).unwrap_or_else(|| bin.to_string()))
+}
+
+/// `<bits/stdc++.h>` 只有 GCC 提供，macOS 的 clang 没有。牛客/LeetCode 的 C++ 代码
+/// 几乎都从这一行开始，所以在临时目录里放一份等价的标准头，用 `-I .` 把它找出来。
+const CPP_SHIM: &str = r#"#pragma once
+#include <algorithm>
+#include <array>
+#include <bitset>
+#include <cassert>
+#include <cctype>
+#include <climits>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <list>
+#include <map>
+#include <numeric>
+#include <queue>
+#include <set>
+#include <sstream>
+#include <stack>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+"#;
+
+fn write_cpp_shim(dir: &Path) -> Result<(), String> {
+    let bits = dir.join("bits");
+    std::fs::create_dir_all(&bits).map_err(|e| format!("建临时目录失败：{e}"))?;
+    std::fs::write(bits.join("stdc++.h"), CPP_SHIM).map_err(|e| format!("写文件失败：{e}"))
+}
+
+/// GCC/libstdc++ 自带 `<bits/stdc++.h>`，clang + libc++（macOS）没有。
+/// 先问一下编译器，别在本来就有的平台上把系统头遮掉（那会少了 PBDS 之类的扩展）。
+fn has_system_bits_header(compiler: &str) -> bool {
+    let mut probe = command(compiler);
+    probe.arg("-fsyntax-only").arg("-x").arg("c++").arg("-");
+    match run_with_timeout(probe, "#include <bits/stdc++.h>\n", Duration::from_secs(5)) {
+        Ok(raw) => !raw.timed_out && raw.status == Some(0),
+        Err(_) => false,
+    }
 }
 
 pub fn run(lang: &str, code: &str, stdin: &str) -> Result<RunResult, String> {
@@ -82,34 +174,20 @@ fn run_in(lang: &str, code: &str, stdin: &str, dir: &Path) -> Result<RunResult, 
     match lang {
         "python" => {
             write(dir, "main.py", code)?;
-            let mut c = Command::new("python3");
+            let mut c = command("python3");
             c.arg("main.py").current_dir(dir);
-            finish(lang, run_with_timeout(c, stdin, RUN_TIMEOUT)?)
-        }
-        "javascript" => {
-            write(dir, "main.js", code)?;
-            let mut c = Command::new("node");
-            c.arg("main.js").current_dir(dir);
-            finish(lang, run_with_timeout(c, stdin, RUN_TIMEOUT)?)
-        }
-        "java" => {
-            write(dir, "Main.java", code)?;
-            let mut build = Command::new("javac");
-            build.arg("-encoding").arg("UTF-8").arg("Main.java").current_dir(dir);
-            let b = run_with_timeout(build, "", BUILD_TIMEOUT)?;
-            if b.timed_out || b.status != Some(0) {
-                return Ok(compile_failure(lang, b));
-            }
-            let mut c = Command::new("java");
-            c.arg("-cp").arg(".").arg("Main").current_dir(dir);
             finish(lang, run_with_timeout(c, stdin, RUN_TIMEOUT)?)
         }
         "cpp" => {
             write(dir, "main.cpp", code)?;
-            let mut build = Command::new("g++");
+            let compiler = cpp_compiler().ok_or("本机没有找到 C++ 编译器")?;
+            let mut build = command(compiler);
+            build.arg("-O0").arg("-std=c++17");
+            if code.contains("bits/stdc++.h") && !has_system_bits_header(compiler) {
+                write_cpp_shim(dir)?;
+                build.arg("-I").arg(".");
+            }
             build
-                .arg("-O0")
-                .arg("-std=c++17")
                 .arg("-o")
                 .arg("main")
                 .arg("main.cpp")
@@ -118,7 +196,24 @@ fn run_in(lang: &str, code: &str, stdin: &str, dir: &Path) -> Result<RunResult, 
             if b.timed_out || b.status != Some(0) {
                 return Ok(compile_failure(lang, b));
             }
-            let mut c = Command::new(if cfg!(windows) { "main.exe" } else { "./main" });
+            let mut c = command(if cfg!(windows) { "main.exe" } else { "./main" });
+            c.current_dir(dir);
+            finish(lang, run_with_timeout(c, stdin, RUN_TIMEOUT)?)
+        }
+        "go" => {
+            write(dir, "main.go", code)?;
+            let mut build = command("go");
+            build
+                .arg("build")
+                .arg("-o")
+                .arg("main")
+                .arg("main.go")
+                .current_dir(dir);
+            let b = run_with_timeout(build, "", BUILD_TIMEOUT)?;
+            if b.timed_out || b.status != Some(0) {
+                return Ok(compile_failure(lang, b));
+            }
+            let mut c = command(if cfg!(windows) { "main.exe" } else { "./main" });
             c.current_dir(dir);
             finish(lang, run_with_timeout(c, stdin, RUN_TIMEOUT)?)
         }
@@ -230,13 +325,12 @@ fn run_with_timeout(mut cmd: Command, stdin_data: &str, timeout: Duration) -> Re
     })
 }
 
-/// 从编译/运行错误里抠出行号。四门语言各有各的格式，不引正则。
+/// 从编译/运行错误里抠出行号。三门语言各有各的格式，不引正则。
 fn parse_error_line(lang: &str, stderr: &str) -> Option<u32> {
     let marker = match lang {
         "python" => "line ",
-        "java" => ".java:",
         "cpp" => ".cpp:",
-        "javascript" => ".js:",
+        "go" => ".go:",
         _ => return None,
     };
 
@@ -268,18 +362,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_java_compile_error() {
-        let e = "Main.java:3: error: ';' expected";
-        assert_eq!(parse_error_line("java", e), Some(3));
+    fn parses_go_compile_error() {
+        let e = "# command-line-arguments\n./main.go:3:5: declared and not used: x";
+        assert_eq!(parse_error_line("go", e), Some(3));
     }
 
     #[test]
-    fn parses_cpp_and_js() {
+    fn parses_cpp_error() {
         assert_eq!(parse_error_line("cpp", "main.cpp:12:5: error: expected ';'"), Some(12));
-        assert_eq!(
-            parse_error_line("javascript", "ReferenceError: x is not defined\n    at /tmp/a/main.js:4:1"),
-            Some(4)
-        );
     }
 
     #[test]
@@ -335,7 +425,7 @@ fn check_in(lang: &str, code: &str, dir: &Path) -> Result<Vec<Diagnostic>, Strin
     match lang {
         "python" => {
             write(dir, "main.py", code)?;
-            let mut c = Command::new("python3");
+            let mut c = command("python3");
             c.arg("-c").arg(PY_CHECK).arg("main.py").current_dir(dir);
             let raw = run_with_timeout(c, "", Duration::from_secs(6))?;
             let text = raw.stdout.trim();
@@ -346,35 +436,35 @@ fn check_in(lang: &str, code: &str, dir: &Path) -> Result<Vec<Diagnostic>, Strin
                 serde_json::from_str(text).map_err(|e| format!("解析检查结果失败：{e}"))?;
             Ok(parsed)
         }
-        "javascript" => {
-            write(dir, "main.js", code)?;
-            let mut c = Command::new("node");
-            c.arg("--check").arg("main.js").current_dir(dir);
-            let raw = run_with_timeout(c, "", Duration::from_secs(6))?;
-            Ok(parse_js_check(&raw.stderr))
-        }
-        "java" => {
-            write(dir, "Main.java", code)?;
-            let mut c = Command::new("javac");
-            c.arg("-encoding").arg("UTF-8").arg("Main.java").current_dir(dir);
-            let raw = run_with_timeout(c, "", BUILD_TIMEOUT)?;
-            Ok(parse_colon_errors(&raw.stderr, ".java"))
-        }
         "cpp" => {
             write(dir, "main.cpp", code)?;
-            let mut c = Command::new("g++");
-            c.arg("-fsyntax-only")
-                .arg("-std=c++17")
-                .arg("main.cpp")
-                .current_dir(dir);
+            let compiler = cpp_compiler().ok_or("本机没有找到 C++ 编译器")?;
+            let mut c = command(compiler);
+            c.arg("-fsyntax-only").arg("-std=c++17");
+            if code.contains("bits/stdc++.h") && !has_system_bits_header(compiler) {
+                write_cpp_shim(dir)?;
+                c.arg("-I").arg(".");
+            }
+            c.arg("main.cpp").current_dir(dir);
             let raw = run_with_timeout(c, "", BUILD_TIMEOUT)?;
             Ok(parse_colon_errors(&raw.stderr, ".cpp"))
+        }
+        "go" => {
+            write(dir, "main.go", code)?;
+            let mut c = command("go");
+            c.arg("build")
+                .arg("-o")
+                .arg("main")
+                .arg("main.go")
+                .current_dir(dir);
+            let raw = run_with_timeout(c, "", BUILD_TIMEOUT)?;
+            Ok(parse_go_errors(&raw.stderr))
         }
         other => Err(format!("不支持的语言：{other}")),
     }
 }
 
-/// `main.cpp:12:5: error: expected ';'` / `Main.java:3: error: ';' expected`
+/// `main.cpp:12:5: error: expected ';'`
 fn parse_colon_errors(stderr: &str, ext: &str) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for line in stderr.lines() {
@@ -411,41 +501,37 @@ fn parse_colon_errors(stderr: &str, ext: &str) -> Vec<Diagnostic> {
     out
 }
 
-/// node --check 的格式和 C 系不一样：行号在上一行，消息在最后。
-fn parse_js_check(stderr: &str) -> Vec<Diagnostic> {
-    let mut line_no = None;
-    let mut message = String::new();
+/// Go 的编译错误：`./main.go:4:1: syntax error: unexpected }`。
+fn parse_go_errors(stderr: &str) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
     for line in stderr.lines() {
-        let t = line.trim();
-        if line_no.is_none() {
-            if let Some((n, _)) = leading_number_after(&t, ".js:") {
-                line_no = Some(n);
-            }
-        }
-        if t.contains("Error:") && message.is_empty() {
-            message = t.to_string();
-        }
-    }
-    match (line_no, message.is_empty()) {
-        (Some(n), false) => vec![Diagnostic {
-            line: n,
-            column: None,
-            severity: "error".into(),
-            message,
-        }],
-        (Some(n), true) => vec![Diagnostic {
-            line: n,
-            column: None,
-            severity: "error".into(),
-            message: "语法错误".into(),
-        }],
-        _ => Vec::new(),
-    }
-}
+        let Some(pos) = line.find(".go:") else { continue };
+        let rest = &line[pos + 4..];
 
-fn leading_number_after<'a>(s: &'a str, marker: &str) -> Option<(u32, &'a str)> {
-    let pos = s.find(marker)?;
-    leading_number_plain(&s[pos + marker.len()..])
+        let Some((line_no, rest)) = leading_number_plain(rest) else {
+            continue;
+        };
+        let rest = rest.strip_prefix(':').unwrap_or(rest);
+
+        let (col, rest) = match leading_number_plain(rest) {
+            Some((c, r)) => (Some(c), r),
+            None => (None, rest),
+        };
+        let rest = rest.strip_prefix(':').unwrap_or(rest).trim();
+        if rest.is_empty() {
+            continue;
+        }
+        out.push(Diagnostic {
+            line: line_no,
+            column: col,
+            severity: "error".into(),
+            message: rest.to_string(),
+        });
+        if out.len() >= 8 {
+            break;
+        }
+    }
+    out
 }
 
 fn leading_number_plain(s: &str) -> Option<(u32, &str)> {
@@ -472,18 +558,12 @@ mod check_tests {
     }
 
     #[test]
-    fn parses_java_errors() {
-        let e = "Main.java:3: error: ';' expected";
-        let d = parse_colon_errors(e, ".java");
-        assert_eq!(d[0].line, 3);
-        assert_eq!(d[0].column, None);
-    }
-
-    #[test]
-    fn parses_node_check() {
-        let e = "/tmp/x/main.js:4\n  console.log(a b);\n              ^\n\nSyntaxError: Unexpected identifier 'b'";
-        let d = parse_js_check(e);
+    fn parses_go_errors() {
+        let e = "# command-line-arguments\n./main.go:4:1: syntax error: unexpected }, expected expression";
+        let d = parse_go_errors(e);
+        assert_eq!(d.len(), 1);
         assert_eq!(d[0].line, 4);
-        assert!(d[0].message.contains("Unexpected identifier"));
+        assert_eq!(d[0].column, Some(1));
+        assert!(d[0].message.contains("syntax error"));
     }
 }
