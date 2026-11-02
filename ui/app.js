@@ -36,12 +36,10 @@ const VIEW_TITLES = {
 const TEMPLATES = {
   python:
     "# 输入从 stdin 读，输出打 stdout\nimport sys\n\ndata = sys.stdin.read().strip()\n\n",
-  javascript:
-    'const data = require("fs").readFileSync(0, "utf8").trim();\n\n',
-  java:
-    "import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        \n    }\n}\n",
   cpp:
-    "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n",
+    "#include <iostream>\n#include <vector>\n#include <string>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n",
+  go:
+    'package main\n\nimport (\n\t"bufio"\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tin := bufio.NewReader(os.Stdin)\n\tout := bufio.NewWriter(os.Stdout)\n\tdefer out.Flush()\n\n\tvar a, b int\n\tfmt.Fscan(in, &a, &b)\n\tfmt.Fprintln(out, a+b)\n}\n',
 };
 
 const st = {
@@ -140,10 +138,17 @@ async function boot() {
 
   try {
     st.settings = await invoke("get_settings");
-    st.lang = st.settings.lang || "python";
+    // 旧配置里可能还存着已下线的 java/javascript，回落到 Python。
+    const saved = st.settings.lang || "python";
+    st.lang = TEMPLATES[saved] ? saved : "python";
     fillSettings(st.settings);
   } catch (_) {
     /* 没配置就先用默认 */
+  }
+  // 配置里存的语言本机没装（比如换机器后 go 不可用）就退到第一个能用的。
+  if (st.runtimes.length && !st.runtimes.some((r) => r.id === st.lang && r.available)) {
+    const first = st.runtimes.find((r) => r.available);
+    if (first) st.lang = first.id;
   }
   renderLangs();
   loadEditor(st.lang);
@@ -444,9 +449,8 @@ function renderLangs() {
     ? st.runtimes
     : [
         { id: "python", label: "Python 3", available: true, version: "" },
-        { id: "javascript", label: "JavaScript", available: true, version: "" },
-        { id: "java", label: "Java", available: false, version: "" },
         { id: "cpp", label: "C++17", available: false, version: "" },
+        { id: "go", label: "Go", available: false, version: "" },
       ];
 
   list.forEach((r) => {
@@ -570,8 +574,7 @@ let checkToken = 0;
 function scheduleCheck() {
   if (!invoke || st.view !== "exam") return;
   if (checkTimer) clearTimeout(checkTimer);
-  // Java 编译一次要一秒，给它更长的静默窗口
-  checkTimer = setTimeout(runCheck, st.lang === "java" ? 900 : 450);
+  checkTimer = setTimeout(runCheck, 450);
 }
 
 async function runCheck() {
